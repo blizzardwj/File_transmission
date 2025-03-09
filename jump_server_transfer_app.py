@@ -5,21 +5,21 @@ import sys
 import threading
 import os
 import time
-from jump_server_transfer import StreamBridge
+from jump_server_transfer import NamedPipeSSHBridge
 
 def main():
     # Create argument parser
     parser = argparse.ArgumentParser(description="File transfer via jump server")
     
     # Add command line arguments
-    parser.add_argument("--hostname", default="192.168.31.4", help="Jump server hostname")
-    parser.add_argument("--port", type=int, default=22, help="SSH port")
+    parser.add_argument("--hostname", default="45.145.74.109", help="Jump server hostname")
+    parser.add_argument("--port", type=int, default=5222, help="SSH port")
     parser.add_argument("--username", default="root", help="SSH username")
     parser.add_argument("--password", help="SSH password")
-    parser.add_argument("--local-path", required=True, help="Local file/folder path")
+    parser.add_argument("--local-path", help="Local file/folder path")
     parser.add_argument("--remote-target", default="file_transfer_default", help="Remote identifier")
     parser.add_argument("--operation", choices=["send", "receive"], required=True, help="Operation type: send or receive")
-    parser.add_argument("--buffer-size", type=int, default=4096, help="Buffer size in bytes (default: 4096)")
+    parser.add_argument("--buffer-size", type=int, default=4096 * 2, help="Buffer size in bytes (default: 4096)")
     
     # Parse arguments
     args = parser.parse_args()
@@ -28,6 +28,16 @@ def main():
     if not args.password:
         import getpass
         args.password = getpass.getpass("Enter SSH password: ")
+
+    # prompt for local path
+    if not args.local_path:
+        args.local_path = input("Enter the local file/folder path: ")
+
+    # prompt for operation
+    args.operation = input("Enter the operation (send/receive): ")
+    if args.operation not in ['send', 'receive']:
+        print("Invalid operation. Use 'send' or 'receive'.")
+        sys.exit(1)
     
     # Get parameters
     jump_host = args.hostname
@@ -41,7 +51,7 @@ def main():
 
     try:
         # Create StreamBridge instance
-        stream_bridge = StreamBridge(jump_host, port, user, pwd)
+        stream_bridge = NamedPipeSSHBridge(jump_host, port, user, pwd)
         
         # Connect to jump server
         if not stream_bridge.connect():
