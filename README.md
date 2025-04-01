@@ -1,0 +1,1 @@
+python file_transmit.py --mode send --jump-server 192.168.31.4 --jump-user root --use-password send "/mnt/d/Movies/Telegram/VID_20231226_225510_425.mp4"

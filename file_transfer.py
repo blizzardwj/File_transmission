@@ -72,7 +72,7 @@ class FileTransferBase:
                     if current_time - last_update >= 1.0:
                         # Update rate once per second
                         total_received += int((current_time - last_update) * (total_received - last_bytes) / 
-                                           (current_time - start_time))
+                                              (current_time - start_time))
                         last_update = current_time
                         last_bytes = total_received
             except (ImportError, OSError, AttributeError):
@@ -235,7 +235,9 @@ class FileSender(FileTransferBase):
             return False
         finally:
             if sock:
+                logger.info("Closing socket connection")
                 sock.close()
+            logger.info("Closing SSH tunnel")
             self.tunnel.close_tunnel()
 
 class FileReceiver(FileTransferBase):
