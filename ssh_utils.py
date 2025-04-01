@@ -84,42 +84,90 @@ class NetworkMonitor:
         self.target_host = target_host
         self.ssh_config = ssh_config
         self.latency = 0.1  # Initial default latency estimate (100ms)
-        
+
+    def measure_latency_with_ssh(self) -> float:
+        """Measure network latency using SSH connection timing"""
+        if not self.ssh_config:
+            logger.warning("Cannot measure latency with SSH: No SSH configuration provided")
+            return self.latency
+            
+        try:
+            start_time = time.time()
+            
+            # Construct SSH command to just return immediately
+            cmd = self.ssh_config.get_ssh_command_base()
+            cmd.extend([
+                "-o", "ConnectTimeout=5",
+                f"{self.ssh_config.jump_user}@{self.ssh_config.jump_server}",
+                "echo", "connected"
+            ])
+            
+            # Convert to string for pexpect
+            cmd_str = " ".join(cmd)
+            child = pexpect.spawn(cmd_str, timeout=10)
+            
+            # Handle password if needed
+            if self.ssh_config.use_password and self.ssh_config.password:
+                child.expect('password:')
+                child.sendline(self.ssh_config.password)
+                
+            # Wait for command completion
+            child.expect(pexpect.EOF)
+            end_time = time.time()
+            
+            # Calculate latency
+            self.latency = (end_time - start_time)
+            logger.info(f"SSH latency: {self.latency:.4f}s")
+            return self.latency
+            
+        except Exception as e:
+            logger.warning(f"Failed to measure latency with SSH: {e}")
+            return self.latency
+
+    def measure_latency_with_socket(self) -> float:
+        """Measure network latency using TCP socket connection"""
+        try:
+            # Default port to try connecting to
+            port = 22  # SSH port is often open
+            num_attempts = 3
+            latency_values = []
+            
+            for _ in range(num_attempts):
+                sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+                sock.settimeout(5)
+                
+                start_time = time.time()
+                try:
+                    sock.connect((self.target_host, port))
+                    end_time = time.time()
+                    latency_values.append(end_time - start_time)
+                except (socket.timeout, socket.error) as e:
+                    logger.debug(f"Socket connection attempt failed: {e}")
+                finally:
+                    sock.close()
+                    
+            if latency_values:
+                self.latency = sum(latency_values) / len(latency_values)
+                logger.info(f"Socket latency: {self.latency:.4f}s")
+                
+            return self.latency
+            
+        except Exception as e:
+            logger.warning(f"Failed to measure latency with socket: {e}")
+            return self.latency
+
     def measure_latency(self) -> float:
         """
-        Measure network latency to the target host through jump server
+        Measure network latency to the target host using direct ping
         
         Returns:
             Latency in seconds
         """
-        if self.ssh_config:
-            # Measure latency through jump server
-            cmd = self.ssh_config.get_ssh_command_base()
-            cmd.append(f"{self.ssh_config.jump_user}@{self.ssh_config.jump_server}")
-            cmd.extend(["ping", "-c", "3", self.target_host])
-            
-            try:
-                output = subprocess.check_output(cmd, stderr=subprocess.STDOUT, text=True)
-                if "time=" in output:
-                    # Extract average time from ping output
-                    latency_lines = [line for line in output.split('\n') if "time=" in line]
-                    if latency_lines:
-                        latency_values = []
-                        for line in latency_lines:
-                            try:
-                                time_part = line.split("time=")[1].split()[0]
-                                latency_values.append(float(time_part.replace("ms", "")))
-                            except (IndexError, ValueError):
-                                continue
-                        
-                        if latency_values:
-                            avg_latency = sum(latency_values) / len(latency_values)
-                            self.latency = avg_latency / 1000  # Convert from ms to seconds
-            except (subprocess.SubprocessError, Exception) as e:
-                logger.warning(f"Failed to measure latency: {e}")
-                # Fall back to default or previous value
-        
-        return self.latency
+        if 0: #self.ssh_config:
+            # May need to input password so it will affect the latency
+            return self.measure_latency_with_ssh()
+        else:
+            return self.measure_latency_with_socket()
     
     def estimate_bandwidth(self, data_size: int, transfer_time: float) -> float:
         """
@@ -166,8 +214,12 @@ class SSHTunnelBase:
                     password = getpass.getpass(f"Enter SSH password for {self.ssh_config.jump_user}@{self.ssh_config.jump_server}: ")
                     self.ssh_config.password = password
                 
+                # Check for sshpass availability
+                sshpass_available = shutil.which("sshpass")
+                
                 # For password auth with sshpass
-                if shutil.which("sshpass"):
+                if sshpass_available:
+                    logger.info("Found sshpass: using for non-interactive password authentication")
                     # Use sshpass for non-interactive password input
                     sshpass_cmd = ["sshpass", "-p", self.ssh_config.password]
                     cmd = sshpass_cmd + cmd
@@ -179,6 +231,7 @@ class SSHTunnelBase:
                     # Use subprocess-specific check
                     self.is_pexpect = False
                 else:
+                    logger.warning("sshpass not found in system PATH. Install it for better password handling, or falling back to pexpect.")
                     # Fallback to expect-like behavior if sshpass is not available
                     try:
                         # Convert list to command string
@@ -197,22 +250,10 @@ class SSHTunnelBase:
                         # Flag that we're using pexpect
                         self.is_pexpect = True
                     except ImportError:
-                        # If pexpect is not available, fall back to basic approach
-                        logger.warning("Neither sshpass nor pexpect available. Password authentication may fail.")
-                        self.tunnel_process = subprocess.Popen(
-                            cmd,
-                            stdin=subprocess.PIPE,
-                            stdout=subprocess.PIPE,
-                            stderr=subprocess.PIPE
-                        )
-                        # Try to send password
-                        try:
-                            self.tunnel_process.communicate(input=self.ssh_config.password.encode() + b'\n', timeout=5)
-                        except subprocess.TimeoutExpired:
-                            # This is expected - means ssh is running and waiting for connection
-                            pass
-                        # Use subprocess-specific check
-                        self.is_pexpect = False
+                        # If pexpect is not available, log error and return failure
+                        logger.error("Cannot establish SSH connection: both sshpass and pexpect are unavailable")
+                        logger.error("Please install sshpass (e.g., 'sudo apt-get install sshpass' on Debian/Ubuntu) or pexpect (pip install pexpect)")
+                        return False
             else:
                 # For key-based auth, proceed as normal
                 self.tunnel_process = subprocess.Popen(
