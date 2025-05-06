@@ -2,9 +2,13 @@
 """
 Reverse SSH Tunnel Experiment
 
-This script demonstrates establishing a reverse SSH tunnel through a jump server.
-In a reverse tunnel, remote ports on the jump server are forwarded to local destinations.
-This is useful when the target machine is behind a firewall or NAT.
+This script demonstrates establishing a reverse SSH tunnel between two devices:
+1. Local Machine: Where this script runs
+2. Jump Server: Remote SSH server that accepts the reverse tunnel
+
+In a reverse tunnel, a port on the remote jump server is forwarded to a local port on your machine.
+This allows external clients to connect to the jump server's port and have their traffic forwarded to 
+your local machine, which is useful when your machine is behind a firewall or NAT.
 
 Usage:
     python reverse_ssh_tunnel.py --jump-server <server> --jump-user <user> [options]
@@ -24,6 +28,7 @@ import threading
 # Add parent directory to path to import ssh_utils
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from core.ssh_utils import SSHConfig, SSHTunnelReverse
+from core.tunnel_data_transfer import TunnelTransfer
 
 # Configure logging
 logging.basicConfig(
@@ -32,153 +37,227 @@ logging.basicConfig(
 )
 logger = logging.getLogger('reverse_tunnel_experiment')
 
-def run_file_server(port):
+def message_server_handler(sock: socket.socket) -> None:
     """
-    Run a simple file server that listens for connections and can receive files
+    Handle a client connection for message exchange server
+    This runs on the local machine and receives connections via the jump server
     """
-    server_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-    server_socket.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-    
+    transfer = TunnelTransfer()
     try:
-        server_socket.bind(('0.0.0.0', port))
-        server_socket.listen(5)
-        logger.info(f"File server is running on port {port}")
+        # Send welcome message
+        transfer.send_message(sock, "Hello from the local machine! This is a message exchange service accessed via reverse tunnel.")
         
+        # Receive and respond to messages
         while True:
-            client_socket, address = server_socket.accept()
-            logger.info(f"Client connected from {address}")
-            
-            # Send welcome message to client
-            welcome_message = f"Connected to file server on port {port}. Send 'file:<filename>' to start transfer.\n"
-            client_socket.send(welcome_message.encode())
-            
-            # Receive command
-            data = client_socket.recv(1024).decode().strip()
-            
-            if data.startswith("file:"):
-                filename = data[5:]
-                logger.info(f"Preparing to receive file: {filename}")
+            message = transfer.receive_message(sock)
+            if not message:
+                logger.info("Client disconnected")
+                break
                 
-                # Send acknowledgment
-                client_socket.send(b"Ready to receive. Send file size followed by data.\n")
+            logger.info(f"Received message via reverse tunnel: {message}")
+            
+            # Echo back the data with a prefix
+            transfer.send_message(sock, f"Echo from local machine: {message}")
+            
+            # Exit if requested
+            if message.lower() in ["exit", "quit", "bye"]:
+                break
                 
-                # Receive file size
-                size_data = client_socket.recv(1024).decode().strip()
-                try:
-                    file_size = int(size_data)
-                    logger.info(f"File size: {file_size} bytes")
-                    
-                    # Send acknowledgment
-                    client_socket.send(b"Size received. Start sending file.\n")
-                    
-                    # Receive file data
-                    received = 0
-                    with open(f"received_{filename}", 'wb') as f:
-                        while received < file_size:
-                            chunk = client_socket.recv(min(4096, file_size - received))
-                            if not chunk:
-                                break
-                            f.write(chunk)
-                            received += len(chunk)
-                            # Print progress
-                            percent = int(received * 100 / file_size)
-                            print(f"\rReceiving: {percent}% ({received}/{file_size} bytes)", end='')
-                    
-                    print()  # New line after progress
-                    
-                    if received == file_size:
-                        logger.info(f"File received successfully: received_{filename}")
-                        client_socket.send(b"File received successfully.\n")
-                    else:
-                        logger.warning(f"Incomplete file received: {received}/{file_size} bytes")
-                        client_socket.send(b"Warning: Incomplete file received.\n")
-                        
-                except ValueError:
-                    logger.error("Invalid file size format")
-                    client_socket.send(b"Error: Invalid file size format.\n")
-            else:
-                logger.info(f"Received command: {data}")
-                client_socket.send(f"Unknown command: {data}\n".encode())
-            
-            client_socket.close()
-            
-    except KeyboardInterrupt:
-        logger.info("Server stopped by user")
     except Exception as e:
-        logger.error(f"Server error: {e}")
-    finally:
-        server_socket.close()
+        logger.error(f"Error in message server handler: {e}")
 
-def send_file_via_tunnel(jump_server, remote_port, filename):
+def file_server_handler(sock: socket.socket) -> None:
     """
-    Send a file through the reverse tunnel by connecting to the jump server's remote port
+    Handle a client connection for file exchange server
+    This runs on the local machine and receives connections via the jump server
     """
-    if not os.path.exists(filename):
-        logger.error(f"File not found: {filename}")
+    transfer = TunnelTransfer()
+    try:
+        # Send welcome message
+        transfer.send_message(sock, "Hello from the local machine! This is a file exchange service accessed via reverse tunnel.")
+        
+        # Wait for command
+        command = transfer.receive_message(sock)
+        if not command:
+            logger.info("Client disconnected")
+            return
+            
+        if command.startswith("SEND_FILE"):
+            # Receive file
+            logger.info("Client wants to send a file via reverse tunnel")
+            output_dir = "received_files"
+            os.makedirs(output_dir, exist_ok=True)
+            
+            file_path = transfer.receive_file(sock, output_dir)
+            if file_path:
+                transfer.send_message(sock, f"File received and saved as {file_path}")
+            else:
+                transfer.send_message(sock, "Failed to receive file")
+                
+        elif command.startswith("GET_FILE"):
+            # Send file
+            _, file_name = command.split(":", 1)
+            logger.info(f"Client requested file: {file_name}")
+            
+            # Create a demo file if it doesn't exist
+            if not os.path.exists(file_name):
+                with open(file_name, 'w') as f:
+                    f.write(f"This is a test file '{file_name}' from the local machine (reverse tunnel).\n" * 10)
+                    
+            if transfer.send_file(sock, file_name):
+                logger.info(f"File {file_name} sent successfully")
+            else:
+                logger.error(f"Failed to send file {file_name}")
+                
+        else:
+            transfer.send_message(sock, f"Unknown command: {command}")
+            
+    except Exception as e:
+        logger.error(f"Error in file server handler: {e}")
+
+def run_server(port: int, mode: str = "message"):
+    """
+    Run a server on the local machine that listens for connections coming through the reverse tunnel
+    
+    Args:
+        port: Port to listen on
+        mode: Server mode, either "message" or "file"
+    """
+    transfer = TunnelTransfer()
+    
+    if mode == "file":
+        handler = file_server_handler
+        logger.info(f"Starting file server on local port {port}")
+    else:
+        handler = message_server_handler
+        logger.info(f"Starting message server on local port {port}")
+    
+    transfer.run_server(port, handler)
+
+def simulate_client_message_exchange(jump_server: str, remote_port: int) -> bool:
+    """
+    Simulate a client connecting to the jump server's remote port for message exchange
+    
+    Args:
+        jump_server: Jump server hostname or IP
+        remote_port: Remote port on jump server
+    """
+    transfer = TunnelTransfer()
+    logger.info(f"Simulating message client connecting to {jump_server}:{remote_port}")
+    
+    sock = transfer.connect_to_server(jump_server, remote_port)
+    if not sock:
         return False
     
-    file_size = os.path.getsize(filename)
-    file_basename = os.path.basename(filename)
+    try:
+        # Receive welcome message
+        welcome = transfer.receive_message(sock)
+        if welcome:
+            logger.info(f"Server: {welcome}")
+        
+        # Send several test messages
+        for i in range(3):
+            test_message = f"Test message {i+1} from simulated client"
+            if not transfer.send_message(sock, test_message):
+                logger.error("Failed to send test message")
+                return False
+            
+            # Receive response
+            response = transfer.receive_message(sock)
+            if response:
+                logger.info(f"Server: {response}")
+        
+        # Send exit command
+        transfer.send_message(sock, "exit")
+        sock.close()
+        return True
+    except Exception as e:
+        logger.error(f"Error in message exchange simulation: {e}")
+        return False
+
+def simulate_client_file_exchange(jump_server: str, remote_port: int, file_to_send: str = None, file_to_get: str = None) -> bool:
+    """
+    Simulate a client connecting to the jump server's remote port for file exchange
+    
+    Args:
+        jump_server: Jump server hostname or IP
+        remote_port: Remote port on jump server
+        file_to_send: Path to a file to send to the server (optional)
+        file_to_get: Name of a file to get from the server (optional)
+    """
+    transfer = TunnelTransfer()
+    logger.info(f"Simulating file client connecting to {jump_server}:{remote_port}")
+    
+    sock = transfer.connect_to_server(jump_server, remote_port)
+    if not sock:
+        return False
     
     try:
-        sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-        sock.settimeout(5)
-        sock.connect((jump_server, remote_port))
-        
         # Receive welcome message
-        data = sock.recv(1024)
-        logger.info(f"Server: {data.decode().strip()}")
+        welcome = transfer.receive_message(sock)
+        if welcome:
+            logger.info(f"Server: {welcome}")
         
-        # Send file command
-        sock.send(f"file:{file_basename}".encode())
+        # Send a file if requested
+        if file_to_send:
+            if not os.path.exists(file_to_send):
+                # Create a test file
+                with open(file_to_send, 'w') as f:
+                    f.write(f"This is a test file from the simulated client for reverse tunnel testing.\n" * 100)
+                logger.info(f"Created test file: {file_to_send}")
+            
+            # Tell server we want to send a file
+            transfer.send_message(sock, "SEND_FILE")
+            
+            # Send the file
+            if transfer.send_file(sock, file_to_send):
+                logger.info(f"File {file_to_send} sent successfully")
+                
+                # Get server response
+                response = transfer.receive_message(sock)
+                if response:
+                    logger.info(f"Server: {response}")
+            else:
+                logger.error(f"Failed to send file {file_to_send}")
+                return False
         
-        # Wait for acknowledgment
-        data = sock.recv(1024)
-        logger.info(f"Server: {data.decode().strip()}")
-        
-        # Send file size
-        sock.send(f"{file_size}".encode())
-        
-        # Wait for acknowledgment
-        data = sock.recv(1024)
-        logger.info(f"Server: {data.decode().strip()}")
-        
-        # Send file data
-        sent = 0
-        with open(filename, 'rb') as f:
-            while sent < file_size:
-                chunk = f.read(4096)
-                if not chunk:
-                    break
-                sock.send(chunk)
-                sent += len(chunk)
-                # Print progress
-                percent = int(sent * 100 / file_size)
-                print(f"\rSending: {percent}% ({sent}/{file_size} bytes)", end='')
-        
-        print()  # New line after progress
-        
-        # Wait for final confirmation
-        data = sock.recv(1024)
-        logger.info(f"Server: {data.decode().strip()}")
+        # Get a file if requested
+        elif file_to_get:
+            # Tell server we want to get a file
+            transfer.send_message(sock, f"GET_FILE:{file_to_get}")
+            
+            # Receive the file
+            output_dir = "downloaded_files"
+            os.makedirs(output_dir, exist_ok=True)
+            
+            file_path = transfer.receive_file(sock, output_dir)
+            if file_path:
+                logger.info(f"File received and saved as {file_path}")
+            else:
+                logger.error("Failed to receive file")
+                return False
         
         sock.close()
         return True
     except Exception as e:
-        logger.error(f"File sending failed: {e}")
+        logger.error(f"Error in file exchange simulation: {e}")
         return False
 
 def main():
-    parser = argparse.ArgumentParser(description="Reverse SSH Tunnel Experiment")
+    parser = argparse.ArgumentParser(description="Reverse SSH Tunnel Experiment (2-device setup)")
     parser.add_argument("--jump-server", required=True, help="Jump server hostname or IP")
     parser.add_argument("--jump-user", required=True, help="Username for the jump server")
     parser.add_argument("--jump-port", type=int, default=22, help="SSH port on jump server (default: 22)")
     parser.add_argument("--identity-file", help="SSH identity file (private key)")
     parser.add_argument("--use-password", action="store_true", help="Use password auth instead of key")
-    parser.add_argument("--remote-port", type=int, default=8022, help="Remote port on jump server (default: 8022)")
-    parser.add_argument("--local-port", type=int, default=9022, help="Local port to forward from (default: same as remote)")
-    parser.add_argument("--run-server", action="store_true", help="Run a file server on local port")
-    parser.add_argument("--send-file", help="Send a file through established tunnel (requires tunnel to be established)")
+    parser.add_argument("--remote-port", type=int, default=8022, help="Remote port on jump server to expose (default: 8022)")
+    parser.add_argument("--local-port", type=int, default=9022, help="Local port to forward to (default: 9022)")
+    parser.add_argument("--mode", choices=["message", "file"], default="message", 
+                        help="Transfer mode: message or file (default: message)")
+    parser.add_argument("--run-server", action="store_true", help="Run a server on local port")
+    parser.add_argument("--simulate-client", action="store_true", help="Simulate a client connecting to the remote port")
+    parser.add_argument("--send-file", help="Path to a file for simulated client to send (in file mode)")
+    parser.add_argument("--get-file", help="Name of a file for simulated client to get (in file mode)")
     args = parser.parse_args()
     
     # Create SSH config
@@ -194,45 +273,54 @@ def main():
     if args.use_password and not ssh_config.password:
         import getpass
         ssh_config.password = getpass.getpass(f"Password for {args.jump_user}@{args.jump_server}: ")
-    
-    if args.send_file:
-        # Just send a file through an existing tunnel
-        logger.info(f"Sending file {args.send_file} through tunnel to {args.jump_server}:{args.remote_port}")
-        if send_file_via_tunnel(args.jump_server, args.remote_port, args.send_file):
-            logger.info("File sent successfully")
-        else:
-            logger.error("Failed to send file")
-        return
-    
-    # If running the server is requested, start it in a separate thread
+
+    # Start local server if requested
     server_thread = None
     if args.run_server:
-        local_port = args.local_port if args.local_port else args.remote_port
-        logger.info(f"Starting file server on port {local_port}")
+        logger.info(f"Starting {args.mode} server on local port {args.local_port}")
         server_thread = threading.Thread(
-            target=run_file_server,
-            args=(local_port,),
+            target=run_server,
+            args=(args.local_port, args.mode),
             daemon=True
         )
         server_thread.start()
         time.sleep(1)  # Give the server time to start
     
-    # Create and establish SSH tunnel
-    local_port = args.local_port if args.local_port else args.remote_port
+    # Create and establish reverse SSH tunnel
+    logger.info(f"Establishing reverse tunnel between 2 devices:")
+    logger.info(f"Device 1 (Local Machine): localhost:{args.local_port}")
+    logger.info(f"Device 2 (Jump Server): {args.jump_server}:{args.remote_port}")
+    
     tunnel = SSHTunnelReverse(
         ssh_config=ssh_config,
         remote_port=args.remote_port,
-        local_port=local_port
+        local_host="localhost",
+        local_port=args.local_port
     )
     
-    logger.info(f"Establishing reverse tunnel: localhost:{local_port} <- {args.jump_server}:{args.remote_port}")
     if tunnel.establish_tunnel():
-        logger.info("Tunnel established successfully")
-        logger.info(f"To test: Connect to {args.jump_server}:{args.remote_port} from another machine")
+        logger.info("Reverse tunnel established successfully")
+        
+        # If requested, simulate a client connecting to the tunnel
+        if args.simulate_client:
+            time.sleep(2)  # Give tunnel time to stabilize
+            logger.info("Simulating client connection through the tunnel...")
+            
+            if args.mode == "file":
+                if simulate_client_file_exchange(args.jump_server, args.remote_port, 
+                                               args.send_file, args.get_file):
+                    logger.info("File exchange simulation successful")
+                else:
+                    logger.error("File exchange simulation failed")
+            else:
+                if simulate_client_message_exchange(args.jump_server, args.remote_port):
+                    logger.info("Message exchange simulation successful")
+                else:
+                    logger.error("Message exchange simulation failed")
         
         # Keep the tunnel open
         try:
-            logger.info("Press Ctrl+C to stop the tunnel")
+            logger.info("Tunnel is active. Press Ctrl+C to stop the tunnel")
             while True:
                 time.sleep(1)
         except KeyboardInterrupt:
