@@ -8,13 +8,10 @@ from enum import Enum
 from dataclasses import dataclass
 from typing import Optional, List
 import pexpect
+from core.utils import build_logger
 
 # Configure logging
-logging.basicConfig(
-    level=logging.INFO,
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
-)
-logger = logging.getLogger('ssh_utils')
+logger = build_logger(__name__)
 
 class TransferMode(Enum):
     SENDER = "sender"

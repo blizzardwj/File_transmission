@@ -26,19 +26,12 @@
 import socket
 import argparse
 import threading
-import time
-import sys
-import os
-import logging
-from core.utils import load_config  # 新增: 加载配置函数
+from pathlib import Path
+from core.utils import load_config, build_logger
 
 
 # 配置日志
-logging.basicConfig(
-    level=logging.INFO,
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
-)
-logger = logging.getLogger('socket_experiment')
+logger = build_logger(__name__)
 
 def run_server(host: str = 'localhost', port: int = 8000):
     """
@@ -205,7 +198,9 @@ def run_client(host: str = 'localhost', port: int = 8000, message: str = None):
 def main():
     """主函数"""
     # 在脚本全局加载配置
-    cfg = load_config()
+    config_path = Path(__file__).parent / "config.yaml"
+    cfg = load_config(config_path)
+
     parser = argparse.ArgumentParser(description="简单的Socket编程实验")
     parser.add_argument("--mode", choices=["server", "client"], required=True,
                         help="运行模式: server(服务器) 或 client(客户端)")
@@ -222,8 +217,11 @@ def main():
     # 从配置文件加载默认值
     host = args.host or cfg[args.mode]['host']
     port = args.port or cfg[args.mode]['port']
+    logger.info(f"server address: {host}:{port}")
+
     if args.mode == 'client':
         message = args.message or cfg['client'].get('message')
+        logger.info(f"client message: {message}")
     # 启动服务或客户端
     if args.mode == "server":
         run_server(host, port)

@@ -2,11 +2,10 @@ import os
 import socket
 import time
 import threading
-import logging
 import argparse
-import shutil
 from typing import Optional
 import pexpect
+from core.utils import build_logger
 
 from ssh_utils import (
     TransferMode,
@@ -16,13 +15,10 @@ from ssh_utils import (
     SSHTunnelForward,
     SSHTunnelReverse
 )
+from socket_data_transfer import TunnelTransfer
 
 # Configure logging
-logging.basicConfig(
-    level=logging.INFO,
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
-)
-logger = logging.getLogger('file_transfer')
+logger = build_logger(__name__)
 
 class FileTransferBase:
     """Base class for file transfer operations with common functionality"""
@@ -107,7 +103,7 @@ class FileSender(FileTransferBase):
     
     def send_file(self, file_path: str) -> bool:
         """
-        Send a file to the receiver through the jump server
+        Send a file to the target machine
         
         Args:
             file_path: Path to the file to send
@@ -118,128 +114,63 @@ class FileSender(FileTransferBase):
         if not os.path.exists(file_path):
             logger.error(f"File not found: {file_path}")
             return False
-        
+            
         file_size = os.path.getsize(file_path)
-        if file_size == 0:
-            logger.error("File is empty")
-            return False
+        file_name = os.path.basename(file_path)
         
         logger.info(f"Preparing to send file: {file_path} ({file_size} bytes)")
         
-        # Establish tunnel
+        # Establish tunnel first
+        logger.info("Establishing forward SSH tunnel...")
         if not self.tunnel.establish_tunnel():
+            logger.error("Failed to establish tunnel, aborting")
             return False
-        
-        # Add a delay to ensure tunnel is fully established
-        time.sleep(2)
-        
+            
+        # Get the local port
+        local_port = self.tunnel.local_port
+        if not local_port:
+            logger.error("Failed to get local port")
+            self.tunnel.close_tunnel()
+            return False
+            
+        # Create socket for connection to tunnel
         sock = None
         try:
+            logger.info(f"Connecting to tunnel at 127.0.0.1:{local_port}")
+            sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+            sock.connect(('127.0.0.1', local_port))
+            
             # Measure network conditions
             latency = self.network_monitor.measure_latency()
             logger.info(f"Measured latency: {latency * 1000:.2f}ms")
             
             # Adjust buffer size based on network conditions
-            # Start with an estimated bandwidth of 1MB/s
-            init_bandwidth = 1024 * 1024
-            buffer_size = self.buffer_manager.adjust_buffer_size(init_bandwidth, latency)
-            
-            # Connect to forwarded port
-            sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+            buffer_size = self.buffer_manager.adjust_buffer_size(1024 * 1024, latency)  # Start with 1MB/s estimate
             sock.setsockopt(socket.SOL_SOCKET, socket.SO_SNDBUF, buffer_size)
             
-            # Add socket timeout to prevent hanging
-            sock.settimeout(10)
+            # Create TunnelTransfer with optimized buffer size
+            transfer = TunnelTransfer(buffer_size=buffer_size)
             
-            logger.info(f"Connecting to localhost:{self.local_port} (forwarded to localhost:{self.receiver_port})")
-            try:
-                sock.connect(('localhost', self.local_port))
-                logger.info("Connection established successfully")
-            except ConnectionRefusedError:
-                logger.error(f"Connection refused. Make sure the receiver is running and listening on port {self.receiver_port}")
+            # Use TunnelTransfer to send the file
+            success = transfer.send_file(sock, file_path)
+            
+            if success:
+                logger.info(f"File {file_name} transferred successfully ({file_size} bytes)")
+                return True
+            else:
+                logger.error("File transfer failed")
                 return False
-            except Exception as e:
-                logger.error(f"Connection error: {e}")
-                return False
-            
-            # Reset timeout for data transfer
-            sock.settimeout(None)
-            
-            # Send file metadata
-            file_name = os.path.basename(file_path)
-            metadata = f"{file_name}|{file_size}".encode()
-            logger.info(f"Sending metadata: {metadata.decode()}")
-            sock.send(f"{len(metadata):10d}".encode())
-            sock.send(metadata)
-            
-            # Wait for acknowledgment from receiver
-            try:
-                sock.settimeout(10)
-                ack = sock.recv(2)
-                if ack != b'OK':
-                    logger.error(f"Did not receive proper acknowledgment from receiver. Got: {ack}")
-                    return False
-                logger.info("Received acknowledgment from receiver")
-                sock.settimeout(None)
-            except socket.timeout:
-                logger.error("Timed out waiting for acknowledgment from receiver")
-                return False
-            except Exception as e:
-                logger.error(f"Error receiving acknowledgment: {e}")
-                return False
-            
-            # Start progress monitoring in a separate thread
-            self.stop_progress = False
-            self.progress_thread = threading.Thread(
-                target=self._progress_monitor,
-                args=(sock, file_size)
-            )
-            self.progress_thread.start()
-            
-            # Send file data
-            start_time = time.time()
-            sent_bytes = 0
-            
-            with open(file_path, 'rb') as f:
-                while True:
-                    data = f.read(buffer_size)
-                    if not data:
-                        break
-                    
-                    sock.sendall(data)
-                    sent_bytes += len(data)
-                    
-                    # Periodically adjust buffer size based on actual transfer rate
-                    if sent_bytes % (buffer_size * 10) == 0:
-                        elapsed = time.time() - start_time
-                        if elapsed > 0:
-                            transfer_rate = sent_bytes / elapsed
-                            buffer_size = self.buffer_manager.adjust_buffer_size(transfer_rate, latency)
-                            # Update socket buffer size
-                            sock.setsockopt(socket.SOL_SOCKET, socket.SO_SNDBUF, buffer_size)
-            
-            # Get final transfer statistics
-            transfer_time = time.time() - start_time
-            transfer_rate = file_size / transfer_time if transfer_time > 0 else 0
-            
-            # Stop progress monitoring
-            self.stop_progress = True
-            if self.progress_thread:
-                self.progress_thread.join()
-            
-            logger.info(f"File sent successfully in {transfer_time:.2f} seconds ({transfer_rate/1024/1024:.2f} MB/s)")
-            return True
-            
+                
         except Exception as e:
             logger.error(f"Error sending file: {e}")
             return False
         finally:
             if sock:
-                logger.info("Closing socket connection")
                 sock.close()
-            logger.info("Closing SSH tunnel")
+            # Close the tunnel when done
+            logger.info("Closing ssh tunnel")
             self.tunnel.close_tunnel()
-
+            
 class FileReceiver(FileTransferBase):
     """Handles receiving files through the jump server"""
     
@@ -322,84 +253,32 @@ class FileReceiver(FileTransferBase):
             latency = self.network_monitor.measure_latency()
             logger.info(f"Measured latency: {latency * 1000:.2f}ms")
             
-            # Adjust buffer size
+            # Adjust buffer size based on network conditions
             buffer_size = self.buffer_manager.adjust_buffer_size(1024 * 1024, latency)  # Start with 1MB/s estimate
             client_sock.setsockopt(socket.SOL_SOCKET, socket.SO_RCVBUF, buffer_size)
             
-            # Receive metadata size (fixed 10 bytes)
-            logger.info("Waiting to receive metadata size...")
-            metadata_size_bytes = client_sock.recv(10)
-            if not metadata_size_bytes:
-                logger.error("Failed to receive metadata size")
-                return
+            # Create TunnelTransfer with optimized buffer size
+            transfer = TunnelTransfer(buffer_size=buffer_size)
             
-            try:
-                metadata_size = int(metadata_size_bytes.decode().strip())
-                logger.info(f"Metadata size: {metadata_size} bytes")
-            except ValueError:
-                logger.error(f"Invalid metadata size received: {metadata_size_bytes}")
-                return
-            
-            # Receive metadata
-            metadata_bytes = client_sock.recv(metadata_size)
-            if not metadata_bytes:
-                logger.error("Failed to receive metadata")
-                return
-            
-            try:
-                metadata = metadata_bytes.decode()
-                file_name, file_size_str = metadata.split('|')
-                file_size = int(file_size_str)
-                logger.info(f"Receiving file: {file_name} ({file_size} bytes)")
-            except (ValueError, IndexError) as e:
-                logger.error(f"Invalid metadata format: {e}")
-                return
-            
-            # Send acknowledgment to sender
-            logger.info("Sending acknowledgment to sender")
-            client_sock.send(b'OK')
-            
-            # Prepare output file
-            output_path = os.path.join(output_dir, file_name)
-            
-            # Start progress monitoring
+            # Start progress monitoring in a separate thread if needed
             self.stop_progress = False
             self.progress_thread = threading.Thread(
-                target=self._progress_monitor,
-                args=(client_sock, file_size)
+                target=self._progress_monitor, 
+                args=(client_sock, 0)  # Initial file_size will be updated later
             )
+            self.progress_thread.daemon = True
             self.progress_thread.start()
             
-            # Receive file data
-            start_time = time.time()
-            received_bytes = 0
-            
-            with open(output_path, 'wb') as f:
-                while received_bytes < file_size:
-                    # Calculate remaining bytes
-                    remaining = file_size - received_bytes
-                    bytes_to_read = min(buffer_size, remaining)
-                    
-                    data = client_sock.recv(bytes_to_read)
-                    if not data:
-                        break
-                    
-                    f.write(data)
-                    received_bytes += len(data)
-                    
-                    # Periodically adjust buffer size based on actual transfer rate
-                    if received_bytes % (buffer_size * 10) == 0:
-                        elapsed = time.time() - start_time
-                        if elapsed > 0:
-                            transfer_rate = received_bytes / elapsed
-                            buffer_size = self.buffer_manager.adjust_buffer_size(transfer_rate, latency)
-                            # Update socket buffer size
-                            client_sock.setsockopt(socket.SOL_SOCKET, socket.SO_RCVBUF, buffer_size)
+            # Receive the file using TunnelTransfer
+            output_path = transfer.receive_file(client_sock, output_dir)
             
             # Stop progress monitoring
             self.stop_progress = True
             if self.progress_thread:
-                self.progress_thread.join()
+                self.progress_thread.join(timeout=1.0)
+                
+            if output_path:
+                logger.info(f"File received successfully: {output_path}")
             
             # Get final transfer statistics
             transfer_time = time.time() - start_time

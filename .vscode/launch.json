@@ -6,12 +6,30 @@
     "configurations": [
         
         {
-            "name": "Python Debugger: Current File",
+            "name": "Python Debugger: Current File server",
             "type": "debugpy",
             "request": "launch",
             "program": "${file}",
             "console": "integratedTerminal",
             // "python": "${workspaceFolder}/.venv/bin/python",
+            "args": [
+                "--mode", "server",
+            ],
+            "cwd": "${workspaceFolder}",
+            "env": {
+                "PYTHONPATH": "${workspaceFolder}"
+            }
+        },
+        {
+            "name": "Python Debugger: Current File client",
+            "type": "debugpy",
+            "request": "launch",
+            "program": "${file}",
+            "console": "integratedTerminal",
+            // "python": "${workspaceFolder}/.venv/bin/python",
+            "args": [
+                "--mode", "client",
+            ],
             "cwd": "${workspaceFolder}",
             "env": {
                 "PYTHONPATH": "${workspaceFolder}"

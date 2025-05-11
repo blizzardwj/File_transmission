@@ -10,17 +10,13 @@ different types of tunnels (forward or reverse).
 
 import os
 import socket
-import logging
 import threading
 import time
-from typing import Callable, Optional, Dict, Any, Tuple, Union
+from typing import Callable, Optional, Tuple, Union
+from core.utils import build_logger
 
 # Configure logging
-logging.basicConfig(
-    level=logging.INFO,
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
-)
-logger = logging.getLogger('tunnel_transfer')
+logger = build_logger(__name__)
 
 class TunnelTransfer:
     """
@@ -31,13 +27,19 @@ class TunnelTransfer:
     # Protocol constants
     MSG_TYPE = "MSG"
     FILE_TYPE = "FILE"
-    BUFFER_SIZE = 4096
+    DEFAULT_BUFFER_SIZE = 4096
     HEADER_DELIMITER = "|"
     
-    def __init__(self):
-        """Initialize the tunnel transfer handler"""
+    def __init__(self, buffer_size: int = None):
+        """Initialize the tunnel transfer handler
+        
+        Args:
+            buffer_size: Custom buffer size for data transfers. If None, uses DEFAULT_BUFFER_SIZE.
+        """
         self.server_socket = None
         self.running = False
+        self.buffer_size = buffer_size if buffer_size is not None else self.DEFAULT_BUFFER_SIZE
+        logger.debug(f"TunnelTransfer initialized with buffer_size={self.buffer_size}")
     
     def _send_data(self, sock: socket.socket, data_type: str, data: Union[str, bytes]) -> bool:
         """
@@ -111,7 +113,7 @@ class TunnelTransfer:
             chunks = []
             
             while received < size:
-                chunk_size = min(self.BUFFER_SIZE, size - received)
+                chunk_size = min(self.buffer_size, size - received)
                 chunk = sock.recv(chunk_size)
                 
                 if not chunk:
@@ -122,12 +124,12 @@ class TunnelTransfer:
                 received += len(chunk)
                 
                 # Show progress for large transfers
-                if data_type == self.FILE_TYPE and size > self.BUFFER_SIZE * 10:
+                if data_type == self.FILE_TYPE and size > self.buffer_size * 10:
                     percent = int(received * 100 / size)
                     print(f"\rReceiving: {percent}% ({received}/{size} bytes)", end='')
             
             # Complete progress indicator
-            if data_type == self.FILE_TYPE and size > self.BUFFER_SIZE * 10:
+            if data_type == self.FILE_TYPE and size > self.buffer_size * 10:
                 print()
                 
             data = b''.join(chunks)
@@ -174,6 +176,15 @@ class TunnelTransfer:
         
         return None
     
+    def set_buffer_size(self, buffer_size: int) -> None:
+        """Dynamically adjust the buffer size based on network conditions
+        
+        Args:
+            buffer_size: New buffer size to use for future transfers
+        """
+        self.buffer_size = buffer_size
+        logger.debug(f"Buffer size adjusted to {self.buffer_size} bytes")
+        
     def send_file(self, sock: socket.socket, file_path: str) -> bool:
         """
         Send a file
@@ -209,7 +220,7 @@ class TunnelTransfer:
             with open(file_path, 'rb') as f:
                 while sent < file_size:
                     # Read chunk of data
-                    chunk = f.read(self.BUFFER_SIZE)
+                    chunk = f.read(self.buffer_size)
                     if not chunk:
                         break
                         
@@ -221,12 +232,12 @@ class TunnelTransfer:
                     sent += len(chunk)
                     
                     # Show progress
-                    if file_size > self.BUFFER_SIZE * 10:
+                    if file_size > self.buffer_size * 10:
                         percent = int(sent * 100 / file_size)
                         print(f"\rSending: {percent}% ({sent}/{file_size} bytes)", end='')
             
             # Complete progress indicator
-            if file_size > self.BUFFER_SIZE * 10:
+            if file_size > self.buffer_size * 10:
                 print()
                 
             # Wait for final acknowledgment

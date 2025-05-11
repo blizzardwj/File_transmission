@@ -1,4 +1,4 @@
-**Planning for socket programming steps**
+# Planning for socket programming steps
 
 The user wants to learn socket programming and asked for a step-by-step plan in English, though their message was in Chinese. Since they’re practicing English, I’ll answer in simplified English but can include Chinese translations if necessary. I’ll break down the plan into smaller steps, check for comprehension regularly, and use short sentences. I’ll ask if they understand after each point, offer synonyms of key terms, and provide structured practice ideas. I’ll focus on a slower pace, as they requested.
 
@@ -10,7 +10,7 @@ Here’s a simple, step-by-step plan to learn socket (网络插口) programming.
 
 ---
 
-**1. 理解基础概念 (Basic Concepts)**
+## 1. 理解基础概念 (Basic Concepts)
 
 * **Socket** = an endpoint for communication.
 * **Server** = program that waits for connections (host, 宿主).
@@ -20,9 +20,19 @@ Here’s a simple, step-by-step plan to learn socket (网络插口) programming.
 
 > **Check:** Do you understand these terms?
 
+**Note**: Socket 编程必须存在 server and client
+
+### 1.1 Socket 通信的步骤，标准化流程
+
+* Initiation and listening: For two programs to communicate over network using sockets, one program gernerally needs to be prepared to listen for incoming connections requests. This is the role of the server. The server creates a socket, binds it to aspecific address (IP + port), and then puts it into listening mode.
+
+* Connection request: The other program, the **client**, needs to initiate the communication. It creates a socket and then attempt to connect to the server's known address (IP + port).
+
+* Established communication: Once the server accecpts the client's connection request (protocols like TCP or UDP), a communication channel is established. The client and server can then send and receive data.
+
 ---
 
-**2. 环境搭建 (Setup)**
+## 2. 环境搭建 (Setup)
 
 * Use your Linux shell.
 * Install Python 3: `sudo apt install python3`
@@ -32,7 +42,7 @@ Here’s a simple, step-by-step plan to learn socket (网络插口) programming.
 
 ---
 
-**3. 写第一个 TCP Server 与 Client**
+## 3. 写第一个 TCP Server 与 Client
 
 * **Server (服务器):**
 
@@ -70,7 +80,7 @@ Here’s a simple, step-by-step plan to learn socket (网络插口) programming.
 
 ---
 
-**4. 用 Shell 测试 (Test with Shell Tools)**
+## 4. 用 Shell 测试 (Test with Shell Tools)
 
 * Use **netcat** (`nc`) to mimic a client/server.
 
@@ -87,17 +97,43 @@ Here’s a simple, step-by-step plan to learn socket (网络插口) programming.
 
 ---
 
-**5. 探索 UDP (Try UDP)**
+## 5. 探索 UDP (Try UDP)
 
 * Change `socket.socket()` to `socket.socket(socket.AF_INET, socket.SOCK_DGRAM)`.
 * Use `sendto()` and `recvfrom()`.
 * See that packet loss can happen.
 
-> **Check:** Do you see the difference between TCP and UDP?
+### 5.1 TCP vs UDP 使用区别
+
+**TCP (SOCK_STREAM)**
+
+- 面向连接：需先调用 `connect()` 建立连接
+- 发送/接收：使用 `send()`/`sendall()` 和 `recv()`
+- 特性：可靠性、顺序保证、拥塞控制
+
+**UDP (SOCK_DGRAM)**
+
+- 无连接：可选 `connect()`，否则每次发送需指定目标地址
+- 发送/接收：使用 `sendto(data, addr)` 和 `recvfrom(bufsize)`
+- 特性：不可靠、无顺序保证、保留报文边界
+
+**示例：**
+```python
+# TCP 示例
+sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+sock.connect((host, port))
+sock.sendall(b"Hello TCP")
+data = sock.recv(1024)
+
+# UDP 示例
+sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+sock.sendto(b"Hello UDP", (host, port))
+data, addr = sock.recvfrom(1024)
+```
 
 ---
 
-**6. 添加并发 (Add Concurrency)**
+## 6. 添加并发 (Add Concurrency)
 
 * Try **threads** or **multiprocessing** in Python.
 * Or use **select** / **poll** for non-blocking I/O.
@@ -107,7 +143,7 @@ Here’s a simple, step-by-step plan to learn socket (网络插口) programming.
 
 ---
 
-**7. 抓包与调试 (Packet Capture & Debug)**
+## 7. 抓包与调试 (Packet Capture & Debug)
 
 * Install `tcpdump` or `wireshark`.
 * Run `sudo tcpdump -i lo port 8888`.
@@ -117,7 +153,7 @@ Here’s a simple, step-by-step plan to learn socket (网络插口) programming.
 
 ---
 
-**8. 小项目练手 (Mini Projects)**
+## 8. 小项目练手 (Mini Projects)
 
 * **Echo server:** returns whatever you send.
 * **Chat app:** simple text chat between two users.
@@ -127,7 +163,7 @@ Here’s a simple, step-by-step plan to learn socket (网络插口) programming.
 
 ---
 
-**9. 深入学习 (Advanced Topics)**
+## 9. 深入学习 (Advanced Topics)
 
 * **SSL/TLS** encryption with `ssl` module.
 * **Asyncio** for async socket code.
@@ -137,7 +173,7 @@ Here’s a simple, step-by-step plan to learn socket (网络插口) programming.
 
 ---
 
-**10. 阅读与练习 (Read & Practice)**
+## 10. 阅读与练习 (Read & Practice)
 
 * Official docs: [https://docs.python.org/3/library/socket.html](https://docs.python.org/3/library/socket.html)
 * Online tutorials (search “Python socket tutorial”).
