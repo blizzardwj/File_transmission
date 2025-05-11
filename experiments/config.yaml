@@ -1,0 +1,9 @@
+# 配置文件: 同时保存 server 和 client 配置
+server:
+  host: localhost  # 服务器主机名或IP
+  port: 8000       # 服务器端口
+
+client:
+  host: localhost  # 客户端连接的服务器主机名或IP
+  port: 8000       # 客户端连接的服务器端口
+  message: "你好，服务器！"  # 客户端首次发送的自定义消息（可选）

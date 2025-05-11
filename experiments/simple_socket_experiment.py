@@ -30,6 +30,8 @@ import time
 import sys
 import os
 import logging
+from core.utils import load_config  # 新增: 加载配置函数
+
 
 # 配置日志
 logging.basicConfig(
@@ -202,22 +204,31 @@ def run_client(host: str = 'localhost', port: int = 8000, message: str = None):
 
 def main():
     """主函数"""
+    # 在脚本全局加载配置
+    cfg = load_config()
     parser = argparse.ArgumentParser(description="简单的Socket编程实验")
     parser.add_argument("--mode", choices=["server", "client"], required=True,
                         help="运行模式: server(服务器) 或 client(客户端)")
-    parser.add_argument("--host", default="localhost",
-                        help="主机名或IP地址 (默认: localhost)")
-    parser.add_argument("--port", type=int, default=8000,
-                        help="端口号 (默认: 8000)")
-    parser.add_argument("--message", 
-                        help="客户端模式下要发送的消息 (如果不提供，则进入交互模式)")
+    parser.add_argument("--host", default=None,
+                        help="主机名或IP地址 (默认从配置文件加载)")
+    parser.add_argument("--port", type=int, default=None,
+                        help="端口号 (默认从配置文件加载)")
+    parser.add_argument("--message",
+                        default=None,
+                        help="客户端模式下要发送的消息 (默认从配置文件加载)")
     
     args = parser.parse_args()
     
+    # 从配置文件加载默认值
+    host = args.host or cfg[args.mode]['host']
+    port = args.port or cfg[args.mode]['port']
+    if args.mode == 'client':
+        message = args.message or cfg['client'].get('message')
+    # 启动服务或客户端
     if args.mode == "server":
-        run_server(args.host, args.port)
+        run_server(host, port)
     else:  # client mode
-        run_client(args.host, args.port, args.message)
+        run_client(host, port, message)
 
 if __name__ == "__main__":
     main()
