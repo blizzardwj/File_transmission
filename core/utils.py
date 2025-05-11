@@ -47,3 +47,80 @@ def load_config(config_path: str):
     logger.info(f"加载配置文件: {config_path}")
     with open(config_path, 'r', encoding='utf-8') as f:
         return yaml.safe_load(f)
+
+
+class ConfigLoader:
+    """
+    Handles loading and validating configuration from YAML files
+    """
+    def __init__(self, config_path: str):
+        self.config_path = config_path
+        self.config = None
+    
+    def load_config(self) -> Dict[str, Any]:
+        """
+        Load configuration from the YAML file
+        
+        Returns:
+            Dict containing the configuration
+        """
+        try:
+            if not os.path.exists(self.config_path):
+                logger.error(f"Configuration file not found: {self.config_path}")
+                sys.exit(1)
+                
+            with open(self.config_path, 'r') as f:
+                self.config = yaml.safe_load(f)
+                
+            logger.info(f"Configuration loaded from {self.config_path}")
+            return self.config
+        except Exception as e:
+            logger.error(f"Error loading configuration: {e}")
+            sys.exit(1)
+    
+    def validate_config(self) -> bool:
+        """
+        Validate the configuration
+        
+        Returns:
+            True if configuration is valid, False otherwise
+        """
+        if not self.config:
+            logger.error("No configuration loaded")
+            return False
+            
+        # Check required SSH settings
+        required_ssh_fields = ['jump_server', 'jump_user']
+        for field in required_ssh_fields:
+            if not self.config.get('ssh', {}).get(field):
+                logger.error(f"Missing required SSH configuration: {field}")
+                return False
+        
+        # Check that at least one mode is enabled
+        if not (self.config.get('sender', {}).get('enabled') or 
+                self.config.get('receiver', {}).get('enabled')):
+            logger.error("Neither sender nor receiver mode is enabled")
+            return False
+            
+        # If sender is enabled, check if file is specified
+        if self.config.get('sender', {}).get('enabled'):
+            file_path = self.config.get('sender', {}).get('file')
+            if not file_path:
+                logger.error("Sender mode enabled but no file specified")
+                return False
+            if not os.path.isfile(file_path):
+                logger.error(f"Specified file does not exist: {file_path}")
+                return False
+                
+        # If receiver is enabled, check if output directory is valid
+        if self.config.get('receiver', {}).get('enabled'):
+            output_dir = self.config.get('receiver', {}).get('output_dir', '.')
+            if not os.path.exists(output_dir):
+                try:
+                    os.makedirs(output_dir)
+                    logger.info(f"Created output directory: {output_dir}")
+                except Exception as e:
+                    logger.error(f"Cannot create output directory: {e}")
+                    return False
+        
+        return True

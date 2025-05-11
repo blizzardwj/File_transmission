@@ -1,0 +1,31 @@
+# File Transfer Configuration
+
+# SSH Jump Server Configuration
+ssh:
+  jump_server: "example.jump.server"       # Jump server hostname or IP address
+  jump_user: "username"                    # Username for SSH connection
+  jump_port: 22                            # SSH port (default: 22)
+  identity_file: "/path/to/private_key"    # Optional: Path to SSH private key
+  use_password: false                      # Set to true to use password auth instead of key
+
+# Transfer Configuration
+transfer:
+  port: 9898                               # Port used for data transfer
+
+# Transfer Modes
+# Use one of the following sections depending on your operation mode
+
+# Sender Configuration
+sender:
+  enabled: true                            # Set to true to enable sender mode
+  file: "/path/to/file/to/send"            # Path to the file to send
+
+# Receiver Configuration
+receiver:
+  enabled: false                           # Set to true to enable receiver mode
+  output_dir: "./received_files"           # Directory to save received files
+
+# Performance Tuning
+performance:
+  buffer_size: 4096                        # Default buffer size in bytes
+  auto_adjust: true                        # Automatically adjust buffer based on network conditions
