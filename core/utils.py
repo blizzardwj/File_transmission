@@ -1,6 +1,8 @@
 import os
 import yaml
 import logging
+from typing import Dict, Any
+import sys
 
 """
 统一日志格式和配置
@@ -96,14 +98,21 @@ class ConfigLoader:
                 logger.error(f"Missing required SSH configuration: {field}")
                 return False
         
+        sender_enable = self.config.get('sender', {}).get('enabled')
+        receiver_enable = self.config.get('receiver', {}).get('enabled')
+        
+        # Check that both sender and receiver modes are not enabled simultaneously
+        if sender_enable and receiver_enable:
+            logger.error("Both sender and receiver cannot be enabled at the same time")
+            return False
+        
         # Check that at least one mode is enabled
-        if not (self.config.get('sender', {}).get('enabled') or 
-                self.config.get('receiver', {}).get('enabled')):
+        if not (sender_enable or receiver_enable):
             logger.error("Neither sender nor receiver mode is enabled")
             return False
             
         # If sender is enabled, check if file is specified
-        if self.config.get('sender', {}).get('enabled'):
+        if sender_enable:
             file_path = self.config.get('sender', {}).get('file')
             if not file_path:
                 logger.error("Sender mode enabled but no file specified")
@@ -113,7 +122,7 @@ class ConfigLoader:
                 return False
                 
         # If receiver is enabled, check if output directory is valid
-        if self.config.get('receiver', {}).get('enabled'):
+        if receiver_enable:
             output_dir = self.config.get('receiver', {}).get('output_dir', '.')
             if not os.path.exists(output_dir):
                 try:

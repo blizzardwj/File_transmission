@@ -15,7 +15,7 @@ from ssh_utils import (
     SSHTunnelForward,
     SSHTunnelReverse
 )
-from socket_data_transfer import TunnelTransfer
+from socket_data_transfer import SocketDataTransfer
 
 # Configure logging
 logger = build_logger(__name__)
@@ -148,10 +148,10 @@ class FileSender(FileTransferBase):
             buffer_size = self.buffer_manager.adjust_buffer_size(1024 * 1024, latency)  # Start with 1MB/s estimate
             sock.setsockopt(socket.SOL_SOCKET, socket.SO_SNDBUF, buffer_size)
             
-            # Create TunnelTransfer with optimized buffer size
-            transfer = TunnelTransfer(buffer_size=buffer_size)
+            # Create SocketDataTransfer with optimized buffer size
+            transfer = SocketDataTransfer(buffer_size=buffer_size)
             
-            # Use TunnelTransfer to send the file
+            # Use SocketDataTransfer to send the file
             success = transfer.send_file(sock, file_path)
             
             if success:
@@ -257,8 +257,8 @@ class FileReceiver(FileTransferBase):
             buffer_size = self.buffer_manager.adjust_buffer_size(1024 * 1024, latency)  # Start with 1MB/s estimate
             client_sock.setsockopt(socket.SOL_SOCKET, socket.SO_RCVBUF, buffer_size)
             
-            # Create TunnelTransfer with optimized buffer size
-            transfer = TunnelTransfer(buffer_size=buffer_size)
+            # Create SocketDataTransfer with optimized buffer size
+            transfer = SocketDataTransfer(buffer_size=buffer_size)
             
             # Start progress monitoring in a separate thread if needed
             self.stop_progress = False
@@ -269,7 +269,7 @@ class FileReceiver(FileTransferBase):
             self.progress_thread.daemon = True
             self.progress_thread.start()
             
-            # Receive the file using TunnelTransfer
+            # Receive the file using SocketDataTransfer
             output_path = transfer.receive_file(client_sock, output_dir)
             
             # Stop progress monitoring

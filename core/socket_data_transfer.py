@@ -18,9 +18,9 @@ from core.utils import build_logger
 # Configure logging
 logger = build_logger(__name__)
 
-class TunnelTransfer:
+class SocketDataTransfer:
     """
-    Unified class for handling data transfer over SSH tunnels.
+    Unified class for handling data transfer over sockets using a specific protocol.
     Supports both message-based communication and file transfer.
     """
     
@@ -39,7 +39,7 @@ class TunnelTransfer:
         self.server_socket = None
         self.running = False
         self.buffer_size = buffer_size if buffer_size is not None else self.DEFAULT_BUFFER_SIZE
-        logger.debug(f"TunnelTransfer initialized with buffer_size={self.buffer_size}")
+        logger.debug(f"SocketDataTransfer initialized with buffer_size={self.buffer_size}")
     
     def _send_data(self, sock: socket.socket, data_type: str, data: Union[str, bytes]) -> bool:
         """
