@@ -41,7 +41,8 @@ class TransferApplication:
             hostname=self.config['ssh']['jump_server'],
             username=self.config['ssh']['jump_user'],
             port=self.config['ssh'].get('jump_port', 22),
-            identity_file=self.config['ssh'].get('identity_file')
+            identity_file=self.config['ssh'].get('identity_file'),
+            use_password=self.config['ssh'].get('use_password')
         )
         
         return ssh_config

@@ -74,7 +74,9 @@ Here’s a simple, step-by-step plan to learn socket (网络插口) programming.
 > * `listen()` = wait for clients
 > * `accept()` = accept a connection
 > * `connect()` = client connects to server
-> * `sendall()`, `recv()` = exchange data
+> * `sendall()`, `recv()` = exchange data via TCP
+> * `sendto()`, `recvfrom()` = exchange data via UDP
+> * `close()` = close the socket
 >
 > **Check:** Is this code clear?
 
