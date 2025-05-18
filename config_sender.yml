@@ -2,8 +2,8 @@
 
 # SSH Jump Server Configuration
 ssh:
-  jump_server: "example.jump.server"       # Jump server hostname or IP address
-  jump_user: "username"                    # Username for SSH connection
+  jump_server: "45.145.74.109"       # Jump server hostname or IP address
+  jump_user: "root"                    # Username for SSH connection
   jump_port: 22                            # SSH port (default: 22)
   identity_file: "/path/to/private_key"    # Optional: Path to SSH private key
   use_password: true                      # Set to true to use password auth instead of key
@@ -18,7 +18,7 @@ transfer:
 # Sender Configuration
 sender:
   enabled: true                            # Set to true to enable sender mode
-  file: "/path/to/file/to/send"            # Path to the file to send
+  file: "/mnt/d/Movies/Wicked.2024.Bluray.1080p.x265.Atmos.TrueHD.7.1-CarPT.mkv"            # Path to the file to send
 
 # Receiver Configuration
 receiver:

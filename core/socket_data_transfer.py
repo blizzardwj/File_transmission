@@ -27,7 +27,7 @@ class SocketDataTransfer:
     # Protocol constants
     MSG_TYPE = "MSG"
     FILE_TYPE = "FILE"
-    DEFAULT_BUFFER_SIZE = 4096
+    DEFAULT_BUFFER_SIZE = 64 * 1024
     HEADER_DELIMITER = "|"
     
     def __init__(self, buffer_size: int = None):
@@ -397,7 +397,7 @@ class SocketDataTransfer:
 # Example message handler function
 def echo_message_handler(sock: socket.socket) -> None:
     """Example handler that echoes messages"""
-    transfer = TunnelTransfer()
+    transfer = SocketDataTransfer()
     try:
         # Send welcome message
         transfer.send_message(sock, "Welcome to echo server! Send a message and I'll echo it back.")
@@ -420,7 +420,7 @@ def echo_message_handler(sock: socket.socket) -> None:
 # Example file server handler
 def file_server_handler(sock: socket.socket) -> None:
     """Example handler that receives files"""
-    transfer = TunnelTransfer()
+    transfer = SocketDataTransfer()
     try:
         # Send welcome message
         transfer.send_message(sock, "Welcome to file server! Send a file using the file protocol.")
@@ -446,7 +446,7 @@ def file_server_handler(sock: socket.socket) -> None:
 # Example usage (not executed when imported)
 if __name__ == "__main__":
     # Example server
-    transfer = TunnelTransfer()
+    transfer = SocketDataTransfer()
     
     # Start echo server
     print("Starting echo server on port 9000...")

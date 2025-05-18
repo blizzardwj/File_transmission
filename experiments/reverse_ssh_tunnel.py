@@ -28,7 +28,7 @@ import threading
 # Add parent directory to path to import ssh_utils
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from core.ssh_utils import SSHConfig, SSHTunnelReverse
-from core.tunnel_data_transfer import TunnelTransfer
+from core.socket_data_transfer import SocketDataTransfer
 
 # Configure logging
 logging.basicConfig(
@@ -42,7 +42,7 @@ def message_server_handler(sock: socket.socket) -> None:
     Handle a client connection for message exchange server
     This runs on the local machine and receives connections via the jump server
     """
-    transfer = TunnelTransfer()
+    transfer = SocketDataTransfer()
     try:
         # Send welcome message
         transfer.send_message(sock, "Hello from the local machine! This is a message exchange service accessed via reverse tunnel.")
@@ -71,7 +71,7 @@ def file_server_handler(sock: socket.socket) -> None:
     Handle a client connection for file exchange server
     This runs on the local machine and receives connections via the jump server
     """
-    transfer = TunnelTransfer()
+    transfer = SocketDataTransfer()
     try:
         # Send welcome message
         transfer.send_message(sock, "Hello from the local machine! This is a file exchange service accessed via reverse tunnel.")
@@ -123,7 +123,7 @@ def run_server(port: int, mode: str = "message"):
         port: Port to listen on
         mode: Server mode, either "message" or "file"
     """
-    transfer = TunnelTransfer()
+    transfer = SocketDataTransfer()
     
     if mode == "file":
         handler = file_server_handler
@@ -142,7 +142,7 @@ def simulate_client_message_exchange(jump_server: str, remote_port: int) -> bool
         jump_server: Jump server hostname or IP
         remote_port: Remote port on jump server
     """
-    transfer = TunnelTransfer()
+    transfer = SocketDataTransfer()
     logger.info(f"Simulating message client connecting to {jump_server}:{remote_port}")
     
     sock = transfer.connect_to_server(jump_server, remote_port)
@@ -185,7 +185,7 @@ def simulate_client_file_exchange(jump_server: str, remote_port: int, file_to_se
         file_to_send: Path to a file to send to the server (optional)
         file_to_get: Name of a file to get from the server (optional)
     """
-    transfer = TunnelTransfer()
+    transfer = SocketDataTransfer()
     logger.info(f"Simulating file client connecting to {jump_server}:{remote_port}")
     
     sock = transfer.connect_to_server(jump_server, remote_port)

@@ -27,7 +27,7 @@ import threading
 # Add parent directory to path to import ssh_utils
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from core.ssh_utils import SSHConfig, SSHTunnelForward
-from core.tunnel_data_transfer import TunnelTransfer
+from core.socket_data_transfer import SocketDataTransfer
 
 # Configure logging
 logging.basicConfig(
@@ -40,7 +40,7 @@ def message_server_handler(sock: socket.socket) -> None:
     """
     Handle a client connection for message exchange server
     """
-    transfer = TunnelTransfer()
+    transfer = SocketDataTransfer()
     try:
         # Send welcome message
         transfer.send_message(sock, "Hello from the jump server! This is a message exchange service.")
@@ -68,7 +68,7 @@ def file_server_handler(sock: socket.socket) -> None:
     """
     Handle a client connection for file exchange server
     """
-    transfer = TunnelTransfer()
+    transfer = SocketDataTransfer()
     try:
         # Send welcome message
         transfer.send_message(sock, "Hello from the jump server! This is a file exchange service.")
@@ -120,7 +120,7 @@ def run_server(port: int, mode: str = "message"):
         port: Port to listen on
         mode: Server mode, either "message" or "file"
     """
-    transfer = TunnelTransfer()
+    transfer = SocketDataTransfer()
     
     if mode == "file":
         handler = file_server_handler
@@ -135,7 +135,7 @@ def test_message_exchange(host: str, port: int) -> bool:
     """
     Test message exchange through the tunnel
     """
-    transfer = TunnelTransfer()
+    transfer = SocketDataTransfer()
     sock = transfer.connect_to_server(host, port)
     if not sock:
         return False
@@ -175,7 +175,7 @@ def test_file_exchange(host: str, port: int, file_to_send: str = None, file_to_g
         file_to_send: Path to a file to send to the server (optional)
         file_to_get: Name of a file to get from the server (optional)
     """
-    transfer = TunnelTransfer()
+    transfer = SocketDataTransfer()
     sock = transfer.connect_to_server(host, port)
     if not sock:
         return False
