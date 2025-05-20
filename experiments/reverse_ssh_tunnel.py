@@ -243,77 +243,110 @@ def simulate_client_file_exchange(jump_server: str, remote_port: int, file_to_se
         logger.error(f"Error in file exchange simulation: {e}")
         return False
 
-def main():
-    parser = argparse.ArgumentParser(description="Reverse SSH Tunnel Experiment (2-device setup)")
-    parser.add_argument("--jump-server", required=True, help="Jump server hostname or IP")
-    parser.add_argument("--jump-user", required=True, help="Username for the jump server")
-    parser.add_argument("--jump-port", type=int, default=22, help="SSH port on jump server (default: 22)")
-    parser.add_argument("--identity-file", help="SSH identity file (private key)")
-    parser.add_argument("--use-password", action="store_true", help="Use password auth instead of key")
-    parser.add_argument("--remote-port", type=int, default=8022, help="Remote port on jump server to expose (default: 8022)")
-    parser.add_argument("--local-port", type=int, default=9022, help="Local port to forward to (default: 9022)")
-    parser.add_argument("--mode", choices=["message", "file"], default="message", 
-                        help="Transfer mode: message or file (default: message)")
-    parser.add_argument("--run-server", action="store_true", help="Run a server on local port")
-    parser.add_argument("--simulate-client", action="store_true", help="Simulate a client connecting to the remote port")
-    parser.add_argument("--send-file", help="Path to a file for simulated client to send (in file mode)")
-    parser.add_argument("--get-file", help="Name of a file for simulated client to get (in file mode)")
-    args = parser.parse_args()
+# 这个全局变量包含脚本的调试配置
+# 直接修改这些值来调试脚本，无需使用命令行参数
+# ===== DEBUG CONFIGURATION =====
+DEBUG_CONFIG = {
+    # 服务器配置
+    "jump_server": "example.com",      # 跳转服务器的域名或 IP
+    "jump_user": "your_username",     # 跳转服务器的用户名
+    "jump_port": 22,                  # 跳转服务器的 SSH 端口
     
-    # Create SSH config
+    # 认证方式
+    "use_password": False,            # 设置为 True 表示使用密码认证
+    "identity_file": None,            # SSH 私钥路径 (例如 "~/.ssh/id_rsa")
+    "password": None,                 # 密码 (如果 use_password=True)
+    
+    # 端口配置
+    "remote_port": 8022,             # 跳转服务器上暴露的端口
+    "local_port": 9022,              # 要转发到的本地端口
+    
+    # 运行模式选项
+    "mode": "file",                  # 可选值: "message" 或 "file"
+    "start_server": True,            # 设置为 True 表示在本地端口上运行服务器
+    "simulate_client": True,         # 设置为 True 表示模拟客户端连接到远程端口
+    
+    # 文件传输选项 (当 mode="file" 时)
+    "send_file": "test_file.txt",    # 模拟客户端要发送的文件路径
+    "get_file": "",                 # 模拟客户端要获取的文件名，空字符串表示不获取
+}
+# =============================
+
+def main():
+    # 从全局调试配置中提取参数
+    jump_server = DEBUG_CONFIG["jump_server"]
+    jump_user = DEBUG_CONFIG["jump_user"]
+    jump_port = DEBUG_CONFIG["jump_port"]
+    use_password = DEBUG_CONFIG["use_password"]
+    identity_file = DEBUG_CONFIG["identity_file"]
+    password = DEBUG_CONFIG["password"]
+    remote_port = DEBUG_CONFIG["remote_port"]
+    local_port = DEBUG_CONFIG["local_port"]
+    mode = DEBUG_CONFIG["mode"]
+    start_server = DEBUG_CONFIG["start_server"]
+    simulate_client = DEBUG_CONFIG["simulate_client"]
+    send_file = DEBUG_CONFIG["send_file"]
+    get_file = DEBUG_CONFIG["get_file"]
+    
+    # 创建 SSH 配置
     ssh_config = SSHConfig(
-        jump_server=args.jump_server,
-        jump_user=args.jump_user,
-        jump_port=args.jump_port,
-        identity_file=args.identity_file,
-        use_password=args.use_password
+        jump_server=jump_server,
+        jump_user=jump_user,
+        jump_port=jump_port,
+        identity_file=identity_file,
+        use_password=use_password
     )
     
-    # If password auth is selected, prompt for password
-    if args.use_password and not ssh_config.password:
-        import getpass
-        ssh_config.password = getpass.getpass(f"Password for {args.jump_user}@{args.jump_server}: ")
+    # 如果选择了密码认证并且没有提供密码
+    if use_password and not ssh_config.password:
+        if password:
+            ssh_config.password = password
+        else:
+            import getpass
+            ssh_config.password = getpass.getpass(f"Password for {jump_user}@{jump_server}: ")
 
-    # Start local server if requested
+    # 如果请求运行服务器，在单独的线程中启动它
     server_thread = None
-    if args.run_server:
-        logger.info(f"Starting {args.mode} server on local port {args.local_port}")
+    if start_server:
+        logger.info(f"Starting {mode} server on local port {local_port}")
+        # 创建一个函数引用作为目标
+        server_function = run_server  # 这里明确地提供函数引用
         server_thread = threading.Thread(
-            target=run_server,
-            args=(args.local_port, args.mode),
+            target=server_function,  # 使用函数引用作为目标
+            args=(local_port, mode),
             daemon=True
         )
         server_thread.start()
-        time.sleep(1)  # Give the server time to start
+        time.sleep(1)  # 给服务器一些启动时间
     
-    # Create and establish reverse SSH tunnel
+    # 创建并建立反向 SSH 隧道
     logger.info(f"Establishing reverse tunnel between 2 devices:")
-    logger.info(f"Device 1 (Local Machine): localhost:{args.local_port}")
-    logger.info(f"Device 2 (Jump Server): {args.jump_server}:{args.remote_port}")
+    logger.info(f"Device 1 (Local Machine): localhost:{local_port}")
+    logger.info(f"Device 2 (Jump Server): {jump_server}:{remote_port}")
     
     tunnel = SSHTunnelReverse(
         ssh_config=ssh_config,
-        remote_port=args.remote_port,
+        remote_port=remote_port,
         local_host="localhost",
-        local_port=args.local_port
+        local_port=local_port
     )
     
     if tunnel.establish_tunnel():
         logger.info("Reverse tunnel established successfully")
         
-        # If requested, simulate a client connecting to the tunnel
-        if args.simulate_client:
-            time.sleep(2)  # Give tunnel time to stabilize
+        # 如果请求，模拟客户端连接到隧道
+        if simulate_client:
+            time.sleep(2)  # 给隧道一些稳定的时间
             logger.info("Simulating client connection through the tunnel...")
             
-            if args.mode == "file":
-                if simulate_client_file_exchange(args.jump_server, args.remote_port, 
-                                               args.send_file, args.get_file):
+            if mode == "file":
+                if simulate_client_file_exchange(jump_server, remote_port, 
+                                               send_file, get_file):
                     logger.info("File exchange simulation successful")
                 else:
                     logger.error("File exchange simulation failed")
             else:
-                if simulate_client_message_exchange(args.jump_server, args.remote_port):
+                if simulate_client_message_exchange(jump_server, remote_port):
                     logger.info("Message exchange simulation successful")
                 else:
                     logger.error("Message exchange simulation failed")

@@ -231,82 +231,115 @@ def test_file_exchange(host: str, port: int, file_to_send: str = None, file_to_g
         logger.error(f"Error in file exchange test: {e}")
         return False
 
-def main():
-    parser = argparse.ArgumentParser(description="Forward SSH Tunnel Experiment (2-device setup)")
-    parser.add_argument("--jump-server", required=True, help="Jump server hostname or IP")
-    parser.add_argument("--jump-user", required=True, help="Username for the jump server")
-    parser.add_argument("--jump-port", type=int, default=22, help="SSH port on jump server (default: 22)")
-    parser.add_argument("--identity-file", help="SSH identity file (private key)")
-    parser.add_argument("--use-password", action="store_true", help="Use password auth instead of key")
-    parser.add_argument("--local-port", type=int, default=8080, help="Local port on your machine to forward from (default: 8080)")
-    parser.add_argument("--remote-port", type=int, default=80, help="Remote port on jump server to forward to (default: 80)")
-    parser.add_argument("--mode", choices=["message", "file"], default="message", 
-                        help="Transfer mode: message or file (default: message)")
-    parser.add_argument("--run-server", action="store_true", help="Run a server on jump server's remote port (for testing)")
-    parser.add_argument("--send-file", help="Path to a file to send to the server (in file mode)")
-    parser.add_argument("--get-file", help="Name of a file to get from the server (in file mode)")
-    args = parser.parse_args()
+# 这个全局变量包含脚本的调试配置
+# 直接修改这些变量来调试脚本，无需使用命令行参数
+# ===== DEBUG CONFIGURATION =====
+# 服务器配置
+DEBUG_CONFIG = {
+    # 服务器配置
+    "jump_server": "example.com",      # 跳转服务器的域名或 IP
+    "jump_user": "your_username",     # 跳转服务器的用户名
+    "jump_port": 22,                  # 跳转服务器的 SSH 端口
     
-    # Create SSH config
+    # 认证方式
+    "use_password": False,            # 设置为 True 表示使用密码认证
+    "identity_file": None,            # SSH 私钥路径 (例如 "~/.ssh/id_rsa")
+    "password": None,                 # 密码 (如果 use_password=True)
+    
+    # 端口配置
+    "local_port": 8080,              # 本地机器上的端口 (将被转发到远程端口)
+    "remote_port": 80,               # 跳转服务器上的端口
+    
+    # 运行模式选项
+    "mode": "file",                  # 可选值: "message" 或 "file"
+    "start_server": True,            # 设置为 True 表示在跳转服务器的远程端口上运行服务器 (用于测试)
+    
+    # 文件传输选项 (当 mode="file" 时)
+    "send_file": "test_file.txt",    # 要发送到服务器的文件路径
+    "get_file": "",                 # 要从服务器获取的文件名，空字符串表示不获取
+}
+# =============================
+
+def main():
+    # 从全局调试配置中提取参数
+    jump_server = DEBUG_CONFIG["jump_server"]
+    jump_user = DEBUG_CONFIG["jump_user"]
+    jump_port = DEBUG_CONFIG["jump_port"]
+    use_password = DEBUG_CONFIG["use_password"]
+    identity_file = DEBUG_CONFIG["identity_file"]
+    password = DEBUG_CONFIG["password"]
+    local_port = DEBUG_CONFIG["local_port"]
+    remote_port = DEBUG_CONFIG["remote_port"]
+    mode = DEBUG_CONFIG["mode"]
+    start_server = DEBUG_CONFIG["start_server"]  # 使用新的变量名
+    send_file = DEBUG_CONFIG["send_file"]
+    get_file = DEBUG_CONFIG["get_file"]
+    
+    # 创建 SSH 配置
     ssh_config = SSHConfig(
-        jump_server=args.jump_server,
-        jump_user=args.jump_user,
-        jump_port=args.jump_port,
-        identity_file=args.identity_file,
-        use_password=args.use_password
+        jump_server=jump_server,
+        jump_user=jump_user,
+        jump_port=jump_port,
+        identity_file=identity_file,
+        use_password=use_password
     )
     
-    # If password auth is selected, prompt for password
-    if args.use_password and not ssh_config.password:
-        import getpass
-        ssh_config.password = getpass.getpass(f"Password for {args.jump_user}@{args.jump_server}: ")
+    # 如果选择了密码认证并且没有提供密码
+    if use_password and not ssh_config.password:
+        if password:
+            ssh_config.password = password
+        else:
+            import getpass
+            ssh_config.password = getpass.getpass(f"Password for {jump_user}@{jump_server}: ")
     
-    # If running the server is requested, start it in a separate thread
+    # 如果请求运行服务器，在单独的线程中启动它
     server_thread = None
-    if args.run_server:
-        logger.info(f"Starting {args.mode} server on port {args.remote_port}")
+    if start_server:  # 使用新的变量名
+        logger.info(f"Starting {mode} server on port {remote_port}")
+        # 创建一个函数引用作为目标
         server_thread = threading.Thread(
             target=run_server,
-            args=(args.remote_port, args.mode),
+            args=(remote_port, mode),
             daemon=True
         )
         server_thread.start()
-        time.sleep(1)  # Give the server time to start
+        time.sleep(1)  # 给服务器一些启动时间
     
-    # Create and establish SSH tunnel
-    # In a forward tunnel with 2 devices:
-    # - local_port: Port on your local machine
-    # - remote_host: Always localhost (the jump server itself)
-    # - remote_port: Port on the jump server
+    # 创建并建立 SSH 隧道
+    # 在 2 设备的前向隧道中:
+    # - local_port: 本地机器上的端口
+    # - remote_host: 始终是 localhost (跳转服务器本身)
+    # - remote_port: 跳转服务器上的端口
     tunnel = SSHTunnelForward(
         ssh_config=ssh_config,
-        local_port=args.local_port,
-        remote_host="localhost",  # Always target the jump server itself
-        remote_port=args.remote_port
+        local_port=local_port,
+        remote_host="localhost",  # 始终目标是跳转服务器本身
+        remote_port=remote_port
     )
     
     logger.info(f"Establishing forward tunnel between 2 devices:")
-    logger.info(f"Device 1 (Local Machine): localhost:{args.local_port}")
-    logger.info(f"Device 2 (Jump Server): {args.jump_server} -> localhost:{args.remote_port}")
+    logger.info(f"Device 1 (Local Machine): localhost:{local_port}")
+    logger.info(f"Device 2 (Jump Server): {jump_server} -> localhost:{remote_port}")
     
     if tunnel.establish_tunnel():
         logger.info("Tunnel established successfully")
         
-        # Test the connection through the tunnel based on mode
-        logger.info(f"Testing {args.mode} transfer through tunnel to localhost:{args.local_port}...")
+        # 基于模式测试通过隧道的连接
+        logger.info(f"Testing {mode} transfer through tunnel to localhost:{local_port}...")
         
-        if args.mode == "file":
-            if test_file_exchange("localhost", args.local_port, args.send_file, args.get_file):
+        if mode == "file":
+            # 现在get_file已经来自DEBUG_CONFIG，并且默认为空字符串
+            if test_file_exchange("localhost", local_port, send_file, get_file):
                 logger.info("File exchange test successful")
             else:
                 logger.error("File exchange test failed")
         else:
-            if test_message_exchange("localhost", args.local_port):
+            if test_message_exchange("localhost", local_port):
                 logger.info("Message exchange test successful")
             else:
                 logger.error("Message exchange test failed")
         
-        # Keep the tunnel open
+        # 保持隧道开放
         try:
             logger.info("Tunnel is active. Press Ctrl+C to stop the tunnel")
             while True:
@@ -316,7 +349,7 @@ def main():
     else:
         logger.error("Failed to establish tunnel")
     
-    # Clean up
+    # 清理
     if server_thread and server_thread.is_alive():
         logger.info("Stopping server...")
 

@@ -4,7 +4,7 @@
 ssh:
   jump_server: "45.145.74.109"       # Jump server hostname or IP address
   jump_user: "root"                    # Username for SSH connection
-  jump_port: 22                            # SSH port (default: 22)
+  jump_port: 5222                            # SSH port (default: 22)
   identity_file: "/path/to/private_key"    # Optional: Path to SSH private key
   use_password: true                      # Set to true to use password auth instead of key
   
