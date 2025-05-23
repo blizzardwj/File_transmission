@@ -175,7 +175,12 @@ def simulate_client_message_exchange(jump_server: str, remote_port: int) -> bool
         logger.error(f"Error in message exchange simulation: {e}")
         return False
 
-def simulate_client_file_exchange(jump_server: str, remote_port: int, file_to_send: str = None, file_to_get: str = None) -> bool:
+def simulate_client_file_exchange(
+    jump_server: str, 
+    remote_port: int, 
+    file_to_send: str = "", 
+    file_to_get: str = ""
+) -> bool:
     """
     Simulate a client connecting to the jump server's remote port for file exchange
     
@@ -248,12 +253,16 @@ def simulate_client_file_exchange(jump_server: str, remote_port: int, file_to_se
 # ===== DEBUG CONFIGURATION =====
 DEBUG_CONFIG = {
     # 服务器配置
-    "jump_server": "example.com",      # 跳转服务器的域名或 IP
-    "jump_user": "your_username",     # 跳转服务器的用户名
+    "jump_server": "20.30.80.249",      # 跳转服务器的域名或 IP
+    "jump_user": "zfwj",     # 跳转服务器的用户名
     "jump_port": 22,                  # 跳转服务器的 SSH 端口
     
+    # "jump_server": "192.168.31.123",      # 跳转服务器的域名或 IP
+    # "jump_user": "root",     # 跳转服务器的用户名
+    # "jump_port": 22,                  # 跳转服务器的 SSH 端口
+    
     # 认证方式
-    "use_password": False,            # 设置为 True 表示使用密码认证
+    "use_password": True,            # 设置为 True 表示使用密码认证
     "identity_file": None,            # SSH 私钥路径 (例如 "~/.ssh/id_rsa")
     "password": None,                 # 密码 (如果 use_password=True)
     
@@ -267,7 +276,8 @@ DEBUG_CONFIG = {
     "simulate_client": True,         # 设置为 True 表示模拟客户端连接到远程端口
     
     # 文件传输选项 (当 mode="file" 时)
-    "send_file": "test_file.txt",    # 模拟客户端要发送的文件路径
+    "send_file": "/home/adminwj/Anaconda3-2023.03-Linux-x86_64.sh",    # 模拟客户端要发送的文件路径
+    # "send_file": "/home/jytong/Anaconda3-2024.10-1-Linux-x86_64.sh",    # 模拟客户端要发送的文件路径
     "get_file": "",                 # 模拟客户端要获取的文件名，空字符串表示不获取
 }
 # =============================
@@ -303,16 +313,15 @@ def main():
             ssh_config.password = password
         else:
             import getpass
+            # prompt for password
             ssh_config.password = getpass.getpass(f"Password for {jump_user}@{jump_server}: ")
 
     # 如果请求运行服务器，在单独的线程中启动它
     server_thread = None
     if start_server:
         logger.info(f"Starting {mode} server on local port {local_port}")
-        # 创建一个函数引用作为目标
-        server_function = run_server  # 这里明确地提供函数引用
         server_thread = threading.Thread(
-            target=server_function,  # 使用函数引用作为目标
+            target=run_server,
             args=(local_port, mode),
             daemon=True
         )

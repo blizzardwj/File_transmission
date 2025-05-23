@@ -1,13 +1,13 @@
 import socket
 import subprocess
 import time
-import logging
 import getpass
 import shutil
 from enum import Enum
 from dataclasses import dataclass
-from typing import Optional, List
+from typing import Optional, List, Union, cast
 import pexpect
+import sys
 from core.utils import build_logger
 
 # Configure logging
@@ -186,18 +186,118 @@ class SSHTunnelBase:
     
     def __init__(self, ssh_config: SSHConfig):
         self.ssh_config = ssh_config
-        self.tunnel_process = None
+        self.tunnel_process: Optional[Union[subprocess.Popen, pexpect.spawn]] = None
         self.is_active = False
-        
+        self.is_pexpect = False # Initialize is_pexpect here
+
+    def _handle_pexpect_interaction(self, cmd_str: str) -> bool:
+        """Handles SSH interaction using pexpect, including host authenticity and password."""
+        try:
+            logger.info(f"Pexpect: Spawning command: {cmd_str}")
+            
+            # Increased timeout for more complex interactions, like host key checking + password
+            self.tunnel_process = pexpect.spawn(cmd_str, timeout=10) 
+            if sys.stdout.isatty(): # Only log to stdout if it's a TTY to avoid issues with pipes
+                self.tunnel_process.logfile_read = sys.stdout.buffer
+            else:
+                # If not a TTY, consider logging to a dedicated file or internal buffer for debugging
+                logger.info("Pexpect: Not a TTY, pexpect output will not be sent to sys.stdout.buffer")
+
+            # Expect host authenticity, password, EOF, or TIMEOUT
+            # The order matters: check for authenticity first as it can precede password prompt
+            expected_patterns = [
+                r"Are you sure you want to continue connecting \(yes/no/\[fingerprint\]\)\?", # Host authenticity
+                r"[Pp]assword:",                             # Password prompt (case-insensitive)
+                r"Host key verification failed\.",          # Explicit host key failure
+                r"Permission denied, please try again\.",   # Common incorrect password message
+                r"Connection refused",                     # Connection outright refused
+                pexpect.EOF,
+                pexpect.TIMEOUT
+            ]
+
+            # Loop to handle multi-stage prompts (e.g., authenticity then password)
+            while True:
+                logger.debug(f"Pexpect: Expecting one of: {expected_patterns}")
+                try:
+                    index = self.tunnel_process.expect(expected_patterns, timeout=10) # Timeout for each expect stage
+                except pexpect.exceptions.TIMEOUT:
+                    logger.error(f"Pexpect: TIMEOUT waiting for any of {expected_patterns}. Output so far: {self.tunnel_process.before}")
+                    return False
+                except pexpect.exceptions.EOF:
+                     logger.error(f"Pexpect: EOF encountered unexpectedly during expect. Output so far: {self.tunnel_process.before}")
+                     return False
+
+                if index == 0:  # Host authenticity prompt
+                    logger.info("Pexpect: Responding 'yes' to host authenticity prompt.")
+                    self.tunnel_process.sendline("yes")
+                    # Continue in the loop to expect the next pattern (e.g., password or EOF)
+                    continue 
+                elif index == 1:  # Password prompt
+                    if self.ssh_config.password:
+                        logger.info("Pexpect: Sending password.")
+                        self.tunnel_process.sendline(self.ssh_config.password)
+                        # After sending password, we expect the connection to proceed or fail (EOF/TIMEOUT or specific error message)
+                        # We will break and let the isalive() check determine success.
+                        break 
+                    else:
+                        logger.error("Pexpect: Password prompt received, but no password configured.")
+                        self.tunnel_process.close(force=True)
+                        return False
+                elif index == 2: # Host key verification failed
+                    logger.error(f"Pexpect: Host key verification failed. Output: {self.tunnel_process.before}")
+                    logger.info(f"remove with: ssh-keygen -f '/home/{os.getlogin()}/.ssh/known_hosts' -R {self.ssh_config.jump_server}")
+                    self.tunnel_process.close(force=True)
+                    return False
+                elif index == 3: # Permission denied
+                    logger.error(f"Pexpect: Permission denied (e.g., wrong password). Output: {self.tunnel_process.before}")
+                    # It might re-prompt for password, but for simplicity, we'll treat first denial as failure here.
+                    # A more complex handler could allow retries or expect the password prompt again.
+                    self.tunnel_process.close(force=True)
+                    return False
+                elif index == 4: # Connection refused
+                    logger.error(f"Pexpect: Connection refused by remote host. Output: {self.tunnel_process.before}")
+                    self.tunnel_process.close(force=True)
+                    return False
+                elif index == 5:  # EOF
+                    # EOF might mean success if no password was needed after authenticity, or failure.
+                    # The isalive() check after this loop will be the final arbiter for successful connection.
+                    logger.info(f"Pexpect: EOF received. This might be normal if connection established or an early exit. Output so far: {self.tunnel_process.before}")
+                    break # Exit loop, isalive() will check
+                elif index == 6:  # TIMEOUT (should be caught by the inner try-except)
+                    logger.error(f"Pexpect: SSH process timed out waiting for expected prompt. Output so far: {self.tunnel_process.before}")
+                    self.tunnel_process.close(force=True)
+                    return False
+            
+            self.is_pexpect = True
+            return True # Indicates pexpect interaction attempted, success determined by subsequent checks
+
+        except pexpect.exceptions.ExceptionPexpect as e:
+            logger.error(f"Pexpect: An unhandled pexpect error occurred: {e}")
+            if self.tunnel_process and hasattr(self.tunnel_process, 'before'): # Keep hasattr for runtime safety
+                # Cast to pexpect.spawn for type checker to recognize 'before'
+                pexpect_process = cast(pexpect.spawn, self.tunnel_process)
+                if pexpect_process.before:
+                    logger.error(f"Pexpect: Output before error: {pexpect_process.before.strip()}")
+            if self.tunnel_process:
+                try:
+                    # Also cast here if direct close is attempted on self.tunnel_process and it's pexpect specific
+                    # However, pexpect.spawn().close() is a general method name, so direct cast might not be needed for .close()
+                    # For safety, ensure it's a pexpect process if using pexpect-specific close behavior
+                    if isinstance(self.tunnel_process, pexpect.spawn):
+                         cast(pexpect.spawn, self.tunnel_process).close(force=True)
+                    elif isinstance(self.tunnel_process, subprocess.Popen):
+                         # subprocess.Popen does not have a close method, use terminate/kill
+                         self.tunnel_process.kill() 
+                except Exception:
+                    pass # Ignore errors on close if already in an error state
+            return False
+        except ImportError:
+            logger.error("Pexpect library is not installed. Please ensure it is installed: pip install pexpect")
+            return False
+
     def _establish_tunnel_common(self, cmd: List[str]) -> bool:
         """
         Common tunnel establishment logic
-        
-        Args:
-            cmd: SSH command with arguments list
-            
-        Returns:
-            True if successful, False otherwise
         """
         try:
             logger.info(f"Establishing SSH tunnel: {' '.join(cmd)}")
@@ -233,23 +333,12 @@ class SSHTunnelBase:
                     try:
                         # Convert list to command string
                         cmd_str = " ".join(cmd)
-                        self.tunnel_process = pexpect.spawn(cmd_str)
-                        # Look for password prompt
-                        index = self.tunnel_process.expect(['password:', pexpect.EOF, pexpect.TIMEOUT], timeout=10)
-                        if index == 0:  # Password prompt found
-                            self.tunnel_process.sendline(self.ssh_config.password)
-                        elif index == 1:  # EOF
-                            logger.error("SSH process ended unexpectedly")
+                        if not self._handle_pexpect_interaction(cmd_str):
+                            logger.error("Pexpect interaction failed to establish connection.")
                             return False
-                        elif index == 2:  # TIMEOUT
-                            logger.error("SSH process timed out waiting for password prompt")
-                            return False
-                        # Flag that we're using pexpect
-                        self.is_pexpect = True
-                    except ImportError:
-                        # If pexpect is not available, log error and return failure
-                        logger.error("Cannot establish SSH connection: both sshpass and pexpect are unavailable")
-                        logger.error("Please install sshpass (e.g., 'sudo apt-get install sshpass' on Debian/Ubuntu) or pexpect (pip install pexpect)")
+                        # If _handle_pexpect_interaction returns True, self.is_pexpect is set.
+                    except Exception as e: # Catch any unexpected error during setup for pexpect
+                        logger.error(f"Error setting up pexpect interaction: {e}")
                         return False
             else:
                 # For key-based auth, proceed as normal
@@ -267,22 +356,40 @@ class SSHTunnelBase:
             # Check if process is still running - different methods for pexpect vs subprocess
             if self.is_pexpect:
                 # For pexpect objects, check if the process is alive
-                if self.tunnel_process.isalive():
+                # Give a slight delay for the process to stabilize after interaction
+                time.sleep(1) # Increased sleep to allow tunnel to fully establish or fail
+                if not isinstance(self.tunnel_process, pexpect.spawn):
+                    logger.error("Pexpect flag is set, but tunnel_process is not a pexpect.spawn object.")
+                    return False
+
+                if self.tunnel_process and self.tunnel_process.isalive():
                     self.is_active = True
-                    logger.info("SSH tunnel established successfully")
+                    logger.info("SSH tunnel (via pexpect) established successfully and process is alive.")
                     return True
                 else:
-                    logger.error(f"Failed to establish SSH tunnel with pexpect")
+                    logger.error(f"Failed to establish SSH tunnel with pexpect: process is not alive after interaction.")
+                    # Attempt to get more details from pexpect if available
+                    if self.tunnel_process and hasattr(self.tunnel_process, 'before') and self.tunnel_process.before:
+                        logger.error(f"Pexpect last output before presumed failure: {self.tunnel_process.before.strip()}")
+                    elif self.tunnel_process and hasattr(self.tunnel_process, 'exitstatus'): # hasattr check for safety
+                        logger.error(f"Pexpect process exit status: {self.tunnel_process.exitstatus}, signal status: {self.tunnel_process.signalstatus}")
                     return False
             else:
                 # For subprocess objects, use poll()
-                if self.tunnel_process.poll() is None:
-                    self.is_active = True
-                    logger.info("SSH tunnel established successfully")
-                    return True
+                if self.tunnel_process: # Check if tunnel_process is not None
+                    if not isinstance(self.tunnel_process, subprocess.Popen):
+                        logger.error("Subprocess flag is set, but tunnel_process is not a Popen object.")
+                        return False
+                    if self.tunnel_process.poll() is None:
+                        self.is_active = True
+                        logger.info("SSH tunnel established successfully")
+                        return True
+                    else:
+                        stdout, stderr = self.tunnel_process.communicate()
+                        logger.error(f"Failed to establish SSH tunnel: {stderr.decode().strip() if stderr else 'Unknown error'}")
+                        return False
                 else:
-                    stdout, stderr = self.tunnel_process.communicate()
-                    logger.error(f"Failed to establish SSH tunnel: {stderr.decode()}")
+                    logger.error("Failed to establish SSH tunnel: tunnel_process is None for subprocess path.")
                     return False
                 
         except Exception as e:
@@ -297,22 +404,28 @@ class SSHTunnelBase:
             # Different handling based on process type
             if hasattr(self, 'is_pexpect') and self.is_pexpect:
                 # For pexpect objects
-                try:
-                    self.tunnel_process.close(force=True)  # Force kill the process
-                except Exception as e:
-                    logger.warning(f"Error closing pexpect tunnel: {e}")
+                if isinstance(self.tunnel_process, pexpect.spawn):
+                    try:
+                        self.tunnel_process.close(force=True)  # Force kill the process
+                    except Exception as e:
+                        logger.warning(f"Error closing pexpect tunnel: {e}")
+                else:
+                    logger.warning("Attempted to close pexpect tunnel, but process is not a pexpect.spawn instance.")
             else:
                 # For subprocess objects
-                try:
-                    self.tunnel_process.terminate()
-                    self.tunnel_process.wait(timeout=5)
-                except Exception as e:
-                    logger.warning(f"Error closing subprocess tunnel: {e}")
-                    # Force kill if terminate fails
+                if isinstance(self.tunnel_process, subprocess.Popen):
                     try:
-                        self.tunnel_process.kill()
-                    except:
-                        pass
+                        self.tunnel_process.terminate()
+                        self.tunnel_process.wait(timeout=5)
+                    except Exception as e:
+                        logger.warning(f"Error closing subprocess tunnel: {e}")
+                        # Force kill if terminate fails
+                        try:
+                            self.tunnel_process.kill()
+                        except Exception as kill_e:
+                            logger.warning(f"Error force killing subprocess tunnel: {kill_e}")
+                else:
+                    logger.warning("Attempted to close subprocess tunnel, but process is not a Popen instance.")
                         
             self.is_active = False
 
