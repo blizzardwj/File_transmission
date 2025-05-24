@@ -475,8 +475,9 @@ class SSHTunnelReverse(SSHTunnelBase):
         cmd = self.ssh_config.get_ssh_command_base()
         
         # Add reverse port forwarding
+        # NOTE: 0.0.0.0 is used to allow connections to the remote port from any IP address
         cmd.extend([
-            "-R", f"{self.remote_port}:{self.local_host}:{self.local_port}",
+            "-R", f"0.0.0.0:{self.remote_port}:{self.local_host}:{self.local_port}",
             "-N",  # Don't execute a remote command
             f"{self.ssh_config.jump_user}@{self.ssh_config.jump_server}"
         ])

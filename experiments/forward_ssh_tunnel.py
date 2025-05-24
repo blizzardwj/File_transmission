@@ -310,7 +310,7 @@ def main():
     # - local_port: 本地机器上的端口
     # - remote_host: 始终是 localhost (跳转服务器本身)
     # - remote_port: 跳转服务器上的端口
-    tunnel = SSHTunnelForward(
+    forward_tunnel = SSHTunnelForward(
         ssh_config=ssh_config,
         local_port=local_port,
         remote_host="localhost",  # 始终目标是跳转服务器本身
@@ -321,7 +321,7 @@ def main():
     logger.info(f"Device 1 (Local Machine): localhost:{local_port}")
     logger.info(f"Device 2 (Jump Server): {jump_server} -> localhost:{remote_port}")
     
-    if tunnel.establish_tunnel():
+    if forward_tunnel.establish_tunnel():
         logger.info("Tunnel established successfully")
         
         # 基于模式测试通过隧道的连接

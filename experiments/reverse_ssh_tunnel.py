@@ -10,6 +10,26 @@ In a reverse tunnel, a port on the remote jump server is forwarded to a local po
 This allows external clients to connect to the jump server's port and have their traffic forwarded to 
 your local machine, which is useful when your machine is behind a firewall or NAT.
 
+CONFIGURATION REQUIREMENTS:
+The jumper server (remote host) should let the remote port (it own port) be accessible from the external network. Here are the steps:
+1. When establishing reverse tunnel, "0.0.0.0" should be set as remote_host (like remote_host:remote_port:localhost:local_port).  
+2. Configure GatewayPorts for SSH daemon on the jump server to allow ssh connections from external clients to the remote port. Configure `GatewayPorts clientspecified` or `GatewayPorts yes` in the /etc/ssh/sshd_config file.
+3. Restart sshd service on the jump server. `systemctl restart ssh.service` and `systemctl restart ssh.socket`.
+
+TUNNEL MECHANISM:
+When a reverse SSH tunnel is established, the remote port on the jump server automatically becomes a listening port that can accept client connections, even without explicitly starting a socket server on the jump server. The SSH daemon itself handles the port binding and forwards all incoming connections through the tunnel to the local machine.
+
+Data Flow:
+External Client -> Jump Server:remote_port (SSH daemon listening) -> Resverse SSH Tunnel -> Local Machine:local_port (your socket server)
+
+SERVER or CLIENT PERSPECTIVE:
+
+Socket communication:
+Localhost port is listening. Consider it as a socket server.
+
+Reverse tunnel transport:
+Remotehost port is listening. Consider it as a proxy server.
+
 Usage:
     python reverse_ssh_tunnel.py --jump-server <server> --jump-user <user> [options]
 
@@ -253,13 +273,13 @@ def simulate_client_file_exchange(
 # ===== DEBUG CONFIGURATION =====
 DEBUG_CONFIG = {
     # 服务器配置
-    "jump_server": "20.30.80.249",      # 跳转服务器的域名或 IP
-    "jump_user": "zfwj",     # 跳转服务器的用户名
-    "jump_port": 22,                  # 跳转服务器的 SSH 端口
-    
-    # "jump_server": "192.168.31.123",      # 跳转服务器的域名或 IP
-    # "jump_user": "root",     # 跳转服务器的用户名
+    # "jump_server": "20.30.80.249",      # 跳转服务器的域名或 IP
+    # "jump_user": "zfwj",     # 跳转服务器的用户名
     # "jump_port": 22,                  # 跳转服务器的 SSH 端口
+    
+    "jump_server": "192.168.31.123",      # 跳转服务器的域名或 IP
+    "jump_user": "root",     # 跳转服务器的用户名
+    "jump_port": 22,                  # 跳转服务器的 SSH 端口
     
     # 认证方式
     "use_password": True,            # 设置为 True 表示使用密码认证
@@ -276,8 +296,8 @@ DEBUG_CONFIG = {
     "simulate_client": True,         # 设置为 True 表示模拟客户端连接到远程端口
     
     # 文件传输选项 (当 mode="file" 时)
-    "send_file": "/home/adminwj/Anaconda3-2023.03-Linux-x86_64.sh",    # 模拟客户端要发送的文件路径
-    # "send_file": "/home/jytong/Anaconda3-2024.10-1-Linux-x86_64.sh",    # 模拟客户端要发送的文件路径
+    # "send_file": "/home/adminwj/Anaconda3-2023.03-Linux-x86_64.sh",    # 模拟客户端要发送的文件路径
+    "send_file": "/home/jytong/Anaconda3-2024.10-1-Linux-x86_64.sh",    # 模拟客户端要发送的文件路径
     "get_file": "",                 # 模拟客户端要获取的文件名，空字符串表示不获取
 }
 # =============================
@@ -333,14 +353,14 @@ def main():
     logger.info(f"Device 1 (Local Machine): localhost:{local_port}")
     logger.info(f"Device 2 (Jump Server): {jump_server}:{remote_port}")
     
-    tunnel = SSHTunnelReverse(
+    reverse_tunnel = SSHTunnelReverse(
         ssh_config=ssh_config,
         remote_port=remote_port,
         local_host="localhost",
         local_port=local_port
     )
     
-    if tunnel.establish_tunnel():
+    if reverse_tunnel.establish_tunnel():
         logger.info("Reverse tunnel established successfully")
         
         # 如果请求，模拟客户端连接到隧道
