@@ -4,7 +4,13 @@ Reverse SSH Tunnel Experiment
 
 This script demonstrates establishing a reverse SSH tunnel between two devices:
 1. Local Machine: Where this script runs
+    Act as a real socket server (Server).
+    And simulate a file sender (Sender).
+    Actually, there are two objects on the local machine.
+    
 2. Jump Server: Remote SSH server that accepts the reverse tunnel
+    Act as a proxy server (Proxy) that forwards the traffic to the real socket server.
+    And receive the file from the sender.
 
 In a reverse tunnel, a port on the remote jump server is forwarded to a local port on your machine.
 This allows external clients to connect to the jump server's port and have their traffic forwarded to 
@@ -93,8 +99,10 @@ def file_server_handler(sock: socket.socket) -> None:
     """
     transfer = SocketDataTransfer()
     try:
-        # Send welcome message
-        transfer.send_message(sock, "Hello from the local machine! This is a file exchange service accessed via reverse tunnel.")
+        # Send welcome message, give the name or ip of localhost
+        localhost = socket.gethostname()
+        sock_name = sock.getsockname()
+        transfer.send_message(sock, f"Hello from the {localhost}! This is a file exchange service accessed via reverse tunnel. I am listening on port {sock_name[1]}")
         
         # Wait for command
         command = transfer.receive_message(sock)
@@ -273,13 +281,13 @@ def simulate_client_file_exchange(
 # ===== DEBUG CONFIGURATION =====
 DEBUG_CONFIG = {
     # 服务器配置
-    # "jump_server": "20.30.80.249",      # 跳转服务器的域名或 IP
-    # "jump_user": "zfwj",     # 跳转服务器的用户名
-    # "jump_port": 22,                  # 跳转服务器的 SSH 端口
-    
-    "jump_server": "192.168.31.123",      # 跳转服务器的域名或 IP
-    "jump_user": "root",     # 跳转服务器的用户名
+    "jump_server": "20.30.80.249",      # 跳转服务器的域名或 IP
+    "jump_user": "zfwj",     # 跳转服务器的用户名
     "jump_port": 22,                  # 跳转服务器的 SSH 端口
+    
+    # "jump_server": "192.168.31.123",      # 跳转服务器的域名或 IP
+    # "jump_user": "root",     # 跳转服务器的用户名
+    # "jump_port": 22,                  # 跳转服务器的 SSH 端口
     
     # 认证方式
     "use_password": True,            # 设置为 True 表示使用密码认证
@@ -296,8 +304,8 @@ DEBUG_CONFIG = {
     "simulate_client": True,         # 设置为 True 表示模拟客户端连接到远程端口
     
     # 文件传输选项 (当 mode="file" 时)
-    # "send_file": "/home/adminwj/Anaconda3-2023.03-Linux-x86_64.sh",    # 模拟客户端要发送的文件路径
-    "send_file": "/home/jytong/Anaconda3-2024.10-1-Linux-x86_64.sh",    # 模拟客户端要发送的文件路径
+    "send_file": "/home/adminwj/Anaconda3-2023.03-Linux-x86_64.sh",    # 模拟客户端要发送的文件路径
+    # "send_file": "/home/jytong/Anaconda3-2024.10-1-Linux-x86_64.sh",    # 模拟客户端要发送的文件路径
     "get_file": "",                 # 模拟客户端要获取的文件名，空字符串表示不获取
 }
 # =============================

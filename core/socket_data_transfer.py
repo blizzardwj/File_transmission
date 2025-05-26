@@ -6,9 +6,13 @@ This module provides a unified interface for data transfer over SSH tunnels,
 supporting both simple message exchange and file transfer using the same protocol.
 It abstracts the communication details to provide consistent behavior across
 different types of tunnels (forward or reverse).
+
+TODO: 
+1. Asyncronous version
 """
 
-import os
+# import os
+from pathlib import Path
 import socket
 import threading
 import time
@@ -196,12 +200,13 @@ class SocketDataTransfer:
         Returns:
             True if successful, False otherwise
         """
-        if not os.path.exists(file_path) or not os.path.isfile(file_path):
+        file_p = Path(file_path)
+        if not file_p.exists() or not file_p.is_file():
             logger.error(f"File not found: {file_path}")
             return False
             
-        file_size = os.path.getsize(file_path)
-        file_name = os.path.basename(file_path)
+        file_size = file_p.stat().st_size
+        file_name = file_p.name
         
         # First send file metadata as a message
         metadata = f"{file_name}|{file_size}"
@@ -217,7 +222,7 @@ class SocketDataTransfer:
         # Send file data
         try:
             sent = 0
-            with open(file_path, 'rb') as f:
+            with file_p.open('rb') as f:
                 while sent < file_size:
                     # Read chunk of data
                     chunk = f.read(self.buffer_size)
@@ -264,9 +269,10 @@ class SocketDataTransfer:
         Returns:
             Path to the saved file or None if error
         """
+        output_p = Path(output_dir)
         # Create output directory if it doesn't exist
-        if not os.path.exists(output_dir):
-            os.makedirs(output_dir)
+        if not output_p.exists():
+            output_p.mkdir(parents=True, exist_ok=True)
             
         # First receive file metadata
         metadata = self.receive_message(sock)
@@ -285,10 +291,10 @@ class SocketDataTransfer:
                 return None
                 
             # Prepare to receive file data
-            output_path = os.path.join(output_dir, f"received_{file_name}")
+            output_path = output_p / f"received_{file_name}"
             received_size = 0
             
-            with open(output_path, 'wb') as f:
+            with output_path.open('wb') as f:
                 while received_size < file_size:
                     data_type, data = self._receive_data(sock)
                     
@@ -357,7 +363,13 @@ class SocketDataTransfer:
             return False
     
     def _handle_client(self, client_sock: socket.socket, addr: Tuple, handler: Callable[[socket.socket], None]) -> None:
-        """Handle a client connection in a thread"""
+        """Handle a client connection in a thread
+        
+        Args:
+            client_sock: Client socket
+            addr: Client address
+            handler: Handler function, which takes a client socket and handles the communication
+        """
         try:
             handler(client_sock)
         except Exception as e:
@@ -375,14 +387,14 @@ class SocketDataTransfer:
     
     def connect_to_server(self, host: str, port: int) -> Optional[socket.socket]:
         """
-        Connect to a server
+        Client connects to a server via socket.
         
         Args:
             host: Host to connect to
             port: Port to connect to
             
         Returns:
-            Connected socket or None if connection failed
+            Connected socket (client socket) or None if connection failed
         """
         try:
             sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
