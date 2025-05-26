@@ -46,6 +46,7 @@ Example:
 import os
 import sys
 import time
+from pathlib import Path
 import socket
 import logging
 import argparse
@@ -113,10 +114,11 @@ def file_server_handler(sock: socket.socket) -> None:
         if command.startswith("SEND_FILE"):
             # Receive file
             logger.info("Client wants to send a file via reverse tunnel")
-            output_dir = "received_files"
-            os.makedirs(output_dir, exist_ok=True)
+            output_dir = DEBUG_CONFIG.get("received_files_dir", "received_files")
+            output_d = Path(output_dir).expanduser()
+            output_d.mkdir(parents=True, exist_ok=True)
             
-            file_path = transfer.receive_file(sock, output_dir)
+            file_path = transfer.receive_file(sock, output_d)
             if file_path:
                 transfer.send_message(sock, f"File received and saved as {file_path}")
             else:
@@ -232,38 +234,42 @@ def simulate_client_file_exchange(
             logger.info(f"Server: {welcome}")
         
         # Send a file if requested
+        file_sent_path = Path(file_to_send).expanduser()
+        file_received_name = Path(file_to_get).expanduser()
+        
         if file_to_send:
-            if not os.path.exists(file_to_send):
+            if not file_sent_path.exists():
                 # Create a test file
-                with open(file_to_send, 'w') as f:
+                with open(file_sent_path, 'w') as f:
                     f.write(f"This is a test file from the simulated client for reverse tunnel testing.\n" * 100)
-                logger.info(f"Created test file: {file_to_send}")
+                logger.info(f"Created test file: {file_sent_path}")
             
             # Tell server we want to send a file
             transfer.send_message(sock, "SEND_FILE")
             
             # Send the file
-            if transfer.send_file(sock, file_to_send):
-                logger.info(f"File {file_to_send} sent successfully")
+            if transfer.send_file(sock, file_sent_path):
+                logger.info(f"File {file_sent_path} sent successfully")
                 
                 # Get server response
                 response = transfer.receive_message(sock)
                 if response:
                     logger.info(f"Server: {response}")
             else:
-                logger.error(f"Failed to send file {file_to_send}")
+                logger.error(f"Failed to send file {file_sent_path}")
                 return False
         
         # Get a file if requested
-        elif file_to_get:
+        elif file_received_name:
             # Tell server we want to get a file
-            transfer.send_message(sock, f"GET_FILE:{file_to_get}")
+            transfer.send_message(sock, f"GET_FILE:{file_received_name}")
             
             # Receive the file
-            output_dir = "downloaded_files"
-            os.makedirs(output_dir, exist_ok=True)
+            output_dir = DEBUG_CONFIG.get("received_files_dir", "received_files")
+            output_path = Path(output_dir).expanduser()
+            output_path.mkdir(parents=True, exist_ok=True)
             
-            file_path = transfer.receive_file(sock, output_dir)
+            file_path = transfer.receive_file(sock, output_path)
             if file_path:
                 logger.info(f"File received and saved as {file_path}")
             else:
@@ -304,9 +310,10 @@ DEBUG_CONFIG = {
     "simulate_client": True,         # 设置为 True 表示模拟客户端连接到远程端口
     
     # 文件传输选项 (当 mode="file" 时)
-    "send_file": "/home/adminwj/Anaconda3-2023.03-Linux-x86_64.sh",    # 模拟客户端要发送的文件路径
-    # "send_file": "/home/jytong/Anaconda3-2024.10-1-Linux-x86_64.sh",    # 模拟客户端要发送的文件路径
+    "send_file": "~/Anaconda3-2023.03-Linux-x86_64.sh",    # 模拟客户端要发送的文件路径
+    # "send_file": "~/Anaconda3-2024.10-1-Linux-x86_64.sh",    # 模拟客户端要发送的文件路径
     "get_file": "",                 # 模拟客户端要获取的文件名，空字符串表示不获取
+    "received_files_dir": "~/received_files"
 }
 # =============================
 

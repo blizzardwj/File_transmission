@@ -189,7 +189,7 @@ class SocketDataTransfer:
         self.buffer_size = buffer_size
         logger.debug(f"Buffer size adjusted to {self.buffer_size} bytes")
         
-    def send_file(self, sock: socket.socket, file_path: str) -> bool:
+    def send_file(self, sock: socket.socket, file_path: Union[str, Path]) -> bool:
         """
         Send a file
         
@@ -200,7 +200,11 @@ class SocketDataTransfer:
         Returns:
             True if successful, False otherwise
         """
-        file_p = Path(file_path)
+        if isinstance(file_path, str):
+            file_p = Path(file_path).expanduser()
+        else:
+            file_p = file_path
+        
         if not file_p.exists() or not file_p.is_file():
             logger.error(f"File not found: {file_path}")
             return False
@@ -258,7 +262,7 @@ class SocketDataTransfer:
             logger.error(f"Error sending file: {e}")
             return False
     
-    def receive_file(self, sock: socket.socket, output_dir: str = '.') -> Optional[str]:
+    def receive_file(self, sock: socket.socket, output_dir: Union[str, Path] = '.') -> Optional[str]:
         """
         Receive a file
         
@@ -269,7 +273,11 @@ class SocketDataTransfer:
         Returns:
             Path to the saved file or None if error
         """
-        output_p = Path(output_dir)
+        if isinstance(output_dir, str):
+            output_p = Path(output_dir).expanduser()
+        else:
+            output_p = output_dir
+        
         # Create output directory if it doesn't exist
         if not output_p.exists():
             output_p.mkdir(parents=True, exist_ok=True)
