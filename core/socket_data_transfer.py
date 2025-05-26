@@ -74,8 +74,21 @@ class SocketDataTransfer:
             # Send header
             sock.sendall(header)
             
-            # Send data
-            sock.sendall(data_bytes)
+            # Send data in chunks to avoid overwhelming the socket buffer
+            bytes_sent = 0
+            while bytes_sent < len(data_bytes):
+                chunk_size = min(self.buffer_size, len(data_bytes) - bytes_sent)
+                chunk = data_bytes[bytes_sent:bytes_sent + chunk_size]
+                
+                try:
+                    sent = sock.send(chunk)
+                    if sent == 0:
+                        logger.error("Socket connection broken during send")
+                        return False
+                    bytes_sent += sent
+                except socket.error as e:
+                    logger.error(f"Socket error during send: {e}")
+                    return False
             
             return True
         except Exception as e:
@@ -94,8 +107,12 @@ class SocketDataTransfer:
             or (None, None) if an error occurred
         """
         try:
+            # Set socket timeout for large transfers
+            original_timeout = sock.gettimeout()
+            sock.settimeout(30.0)  # 30 second timeout
+            
             # Receive header length
-            header_len_bytes = sock.recv(10)
+            header_len_bytes = self._recv_exact(sock, 10)
             if not header_len_bytes:
                 logger.error("Connection closed while receiving header length")
                 return None, None
@@ -103,7 +120,7 @@ class SocketDataTransfer:
             header_len = int(header_len_bytes.decode('utf-8'))
             
             # Receive header
-            header_bytes = sock.recv(header_len)
+            header_bytes = self._recv_exact(sock, header_len)
             if not header_bytes:
                 logger.error("Connection closed while receiving header")
                 return None, None
@@ -136,6 +153,9 @@ class SocketDataTransfer:
             if data_type == self.FILE_TYPE and size > self.buffer_size * 10:
                 print()
                 
+            # Restore original timeout
+            sock.settimeout(original_timeout)
+                
             data = b''.join(chunks)
             
             # Convert message data to string
@@ -146,7 +166,31 @@ class SocketDataTransfer:
                 
         except Exception as e:
             logger.error(f"Error receiving data: {e}")
+            # Restore original timeout in case of error
+            try:
+                sock.settimeout(original_timeout)
+            except:
+                pass
             return None, None
+    
+    def _recv_exact(self, sock: socket.socket, num_bytes: int) -> Optional[bytes]:
+        """
+        Receive exactly num_bytes from socket
+        
+        Args:
+            sock: Socket to receive from
+            num_bytes: Exact number of bytes to receive
+            
+        Returns:
+            Received bytes or None if connection closed
+        """
+        data = b''
+        while len(data) < num_bytes:
+            chunk = sock.recv(num_bytes - len(data))
+            if not chunk:
+                return None
+            data += chunk
+        return data
     
     def send_message(self, sock: socket.socket, message: str) -> bool:
         """
@@ -318,7 +362,7 @@ class SocketDataTransfer:
                 logger.warning("Failed to send success acknowledgment")
                 
             logger.info(f"File received successfully: {output_path}")
-            return output_path
+            return str(output_path)  # Convert Path to string for return type
             
         except Exception as e:
             logger.error(f"Error receiving file: {e}")
