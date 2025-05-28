@@ -450,6 +450,8 @@ class SSHTunnelForward(SSHTunnelBase):
         # Add port forwarding
         cmd.extend([
             "-L", f"{self.local_port}:{self.remote_host}:{self.remote_port}",
+            # if you want other machines on your local network to access local port uncomment the following line to substitute the above line
+            # "-L", f"0.0.0.0:{self.local_port}:{self.remote_host}:{self.remote_port}", 
             "-N",  # Don't execute a remote command
             f"{self.ssh_config.jump_user}@{self.ssh_config.jump_server}"
         ])

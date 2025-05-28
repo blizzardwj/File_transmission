@@ -12,6 +12,10 @@ This script demonstrates establishing a reverse SSH tunnel between two devices:
     Act as a proxy server (Proxy) that forwards the traffic to the real socket server.
     And receive the file from the sender.
 
+TWO TASKS:
+1. Send messages between the local machine and the jump server through the reverse tunnel.
+2. Send files from a simulated client (on the local machine) to the jump server (actually to the local machine's socket server) through the reverse tunnel.
+
 In a reverse tunnel, a port on the remote jump server is forwarded to a local port on your machine.
 This allows external clients to connect to the jump server's port and have their traffic forwarded to 
 your local machine, which is useful when your machine is behind a firewall or NAT.

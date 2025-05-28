@@ -106,6 +106,7 @@ class SocketDataTransfer:
             Tuple of (data_type, data) where data is string for messages and bytes for files,
             or (None, None) if an error occurred
         """
+        original_timeout = None
         try:
             # Set socket timeout for large transfers
             original_timeout = sock.gettimeout()
@@ -154,7 +155,8 @@ class SocketDataTransfer:
                 print()
                 
             # Restore original timeout
-            sock.settimeout(original_timeout)
+            if original_timeout is not None:
+                sock.settimeout(original_timeout)
                 
             data = b''.join(chunks)
             
@@ -168,7 +170,8 @@ class SocketDataTransfer:
             logger.error(f"Error receiving data: {e}")
             # Restore original timeout in case of error
             try:
-                sock.settimeout(original_timeout)
+                if original_timeout is not None:
+                    sock.settimeout(original_timeout)
             except:
                 pass
             return None, None

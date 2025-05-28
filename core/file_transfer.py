@@ -260,34 +260,30 @@ class FileReceiver(FileTransferBase):
             # Create SocketDataTransfer with optimized buffer size
             transfer = SocketDataTransfer(buffer_size=buffer_size)
             
-            # Start progress monitoring in a separate thread if needed
-            self.stop_progress = False
-            self.progress_thread = threading.Thread(
-                target=self._progress_monitor, 
-                args=(client_sock, 0)  # Initial file_size will be updated later
-            )
-            self.progress_thread.daemon = True
-            self.progress_thread.start()
+            # Record start time for transfer statistics
+            start_time = time.time()
             
             # Receive the file using SocketDataTransfer
+            # Note: SocketDataTransfer handles progress monitoring internally
             output_path = transfer.receive_file(client_sock, output_dir)
             
-            # Stop progress monitoring
-            self.stop_progress = True
-            if self.progress_thread:
-                self.progress_thread.join(timeout=1.0)
-                
             if output_path:
-                logger.info(f"File received successfully: {output_path}")
-            
-            # Get final transfer statistics
-            transfer_time = time.time() - start_time
-            transfer_rate = file_size / transfer_time if transfer_time > 0 else 0
-            
-            if received_bytes == file_size:
-                logger.info(f"File received successfully in {transfer_time:.2f} seconds ({transfer_rate/1024/1024:.2f} MB/s)")
+                # Calculate transfer statistics
+                transfer_time = time.time() - start_time
+                
+                # Get file size from the received file
+                try:
+                    import os
+                    file_size = os.path.getsize(output_path)
+                    transfer_rate = file_size / transfer_time if transfer_time > 0 else 0
+                    
+                    logger.info(f"File received successfully: {output_path}")
+                    logger.info(f"Transfer completed in {transfer_time:.2f} seconds ({transfer_rate/1024/1024:.2f} MB/s)")
+                except Exception as stat_error:
+                    logger.warning(f"Could not calculate transfer statistics: {stat_error}")
+                    logger.info(f"File received successfully: {output_path}")
             else:
-                logger.warning(f"Incomplete file received: {received_bytes}/{file_size} bytes")
+                logger.error("File transfer failed")
                 
         except Exception as e:
             logger.error(f"Error handling client: {e}")
