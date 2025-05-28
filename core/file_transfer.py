@@ -1,4 +1,5 @@
 import os
+from pathlib import Path
 import socket
 import time
 import threading
@@ -55,14 +56,16 @@ class FileTransferBase:
             # Try to get socket buffer status to estimate bytes transferred
             try:
                 # This is platform specific and may not work on all systems
-                if hasattr(socket, 'TIOCOUTQ'):
+                # TIOCOUTQ is a Linux-specific constant with value 0x5411
+                TIOCOUTQ = 0x5411
+                try:
                     # For Linux systems
                     import fcntl
                     import array
                     buf = array.array('i', [0])
-                    fcntl.ioctl(sock.fileno(), socket.TIOCOUTQ, buf)
+                    fcntl.ioctl(sock.fileno(), TIOCOUTQ, buf)
                     total_received = file_size - buf[0]
-                else:
+                except (ImportError, OSError, AttributeError):
                     # Fall back to estimation
                     current_time = time.time()
                     if current_time - last_update >= 1.0:
@@ -111,15 +114,16 @@ class FileSender(FileTransferBase):
         Returns:
             True if successful, False otherwise
         """
-        if not os.path.exists(file_path):
-            logger.error(f"File not found: {file_path}")
+        file_p = Path(file_path)
+        if not file_p.is_file():
+            logger.error(f"File not found: {file_p}")
             return False
-            
-        file_size = os.path.getsize(file_path)
-        file_name = os.path.basename(file_path)
-        
-        logger.info(f"Preparing to send file: {file_path} ({file_size} bytes)")
-        
+
+        file_size = file_p.stat().st_size
+        file_name = file_p.name
+
+        logger.info(f"Preparing to send file: {file_p} ({file_size} bytes)")
+
         # Establish tunnel first
         logger.info("Establishing forward SSH tunnel...")
         if not self.tunnel.establish_tunnel():
@@ -144,15 +148,33 @@ class FileSender(FileTransferBase):
             latency = self.network_monitor.measure_latency()
             logger.info(f"Measured latency: {latency * 1000:.2f}ms")
             
-            # Adjust buffer size based on network conditions
-            buffer_size = self.buffer_manager.adjust_buffer_size(1024 * 1024, latency)  # Start with 1MB/s estimate
+            # Measure initial bandwidth and adjust buffer size
+            try:
+                initial_bandwidth = self.buffer_manager.measure_initial_bandwidth(sock)
+                buffer_size = self.buffer_manager.adjust_buffer_size(initial_bandwidth, latency)
+            except Exception as e:
+                logger.warning(f"Failed to measure initial bandwidth: {e}, using default")
+                buffer_size = self.buffer_manager.adjust_buffer_size(1024 * 1024, latency)
+                
             sock.setsockopt(socket.SOL_SOCKET, socket.SO_SNDBUF, buffer_size)
             
-            # Create SocketDataTransfer with optimized buffer size
+            # Create SocketDataTransfer with optimized buffer size and buffer manager
             transfer = SocketDataTransfer(buffer_size=buffer_size)
             
-            # Use SocketDataTransfer to send the file
-            success = transfer.send_file(sock, file_path)
+            # Use adaptive file transfer if available, otherwise fall back to standard transfer
+            if hasattr(transfer, 'send_file_adaptive'):
+                success = transfer.send_file_adaptive(sock, file_path, self.buffer_manager, latency)
+            else:
+                success = transfer.send_file(sock, file_path)
+            
+            if success:
+                logger.info(f"File {file_name} transferred successfully ({file_size} bytes)")
+                avg_rate = self.buffer_manager.get_average_transfer_rate()
+                logger.info(f"Average transfer rate: {avg_rate / 1024 / 1024:.2f} MB/s")
+                return True
+            else:
+                logger.error("File transfer failed")
+                return False
             
             if success:
                 logger.info(f"File {file_name} transferred successfully ({file_size} bytes)")
@@ -253,8 +275,9 @@ class FileReceiver(FileTransferBase):
             latency = self.network_monitor.measure_latency()
             logger.info(f"Measured latency: {latency * 1000:.2f}ms")
             
-            # Adjust buffer size based on network conditions
-            buffer_size = self.buffer_manager.adjust_buffer_size(1024 * 1024, latency)  # Start with 1MB/s estimate
+            # Use initial bandwidth estimate for buffer adjustment
+            estimated_bandwidth = self.buffer_manager.get_average_transfer_rate()
+            buffer_size = self.buffer_manager.adjust_buffer_size(estimated_bandwidth, latency)
             client_sock.setsockopt(socket.SOL_SOCKET, socket.SO_RCVBUF, buffer_size)
             
             # Create SocketDataTransfer with optimized buffer size
@@ -263,9 +286,11 @@ class FileReceiver(FileTransferBase):
             # Record start time for transfer statistics
             start_time = time.time()
             
-            # Receive the file using SocketDataTransfer
-            # Note: SocketDataTransfer handles progress monitoring internally
-            output_path = transfer.receive_file(client_sock, output_dir)
+            # Receive the file using adaptive transfer if available
+            if hasattr(transfer, 'receive_file_adaptive'):
+                output_path = transfer.receive_file_adaptive(client_sock, output_dir, self.buffer_manager, latency)
+            else:
+                output_path = transfer.receive_file(client_sock, output_dir)
             
             if output_path:
                 # Calculate transfer statistics

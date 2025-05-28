@@ -17,6 +17,7 @@ import socket
 import threading
 import time
 from typing import Callable, Optional, Tuple, Union
+from core.ssh_utils import BufferManager
 from core.utils import build_logger
 
 # Configure logging
@@ -34,7 +35,7 @@ class SocketDataTransfer:
     DEFAULT_BUFFER_SIZE = 64 * 1024
     HEADER_DELIMITER = "|"
     
-    def __init__(self, buffer_size: int = None):
+    def __init__(self, buffer_size: Optional[int] = None):
         """Initialize the tunnel transfer handler
         
         Args:
@@ -459,6 +460,203 @@ class SocketDataTransfer:
             return sock
         except Exception as e:
             logger.error(f"Failed to connect to {host}:{port}: {e}")
+            return None
+        
+    def send_file_adaptive(self, sock: socket.socket, file_path: Union[str, Path], buffer_manager: Optional[BufferManager]=None, latency: float = 0.1) -> bool:
+        """
+        Send a file with adaptive buffer size adjustment
+        
+        Args:
+            sock: Socket to send through
+            file_path: Path to the file to send
+            buffer_manager: BufferManager instance for adaptive adjustment
+            latency: Network latency in seconds
+            
+        Returns:
+            True if successful, False otherwise
+        """
+        if isinstance(file_path, str):
+            file_p = Path(file_path).expanduser()
+        else:
+            file_p = file_path
+        
+        if not file_p.exists() or not file_p.is_file():
+            logger.error(f"File not found: {file_path}")
+            return False
+            
+        file_size = file_p.stat().st_size
+        file_name = file_p.name
+        
+        # First send file metadata as a message
+        metadata = f"{file_name}|{file_size}"
+        if not self.send_message(sock, metadata):
+            return False
+            
+        # Wait for acknowledgment
+        ack = self.receive_message(sock)
+        if not ack or not ack.startswith("READY"):
+            logger.error(f"Did not receive proper acknowledgment. Got: {ack}")
+            return False
+            
+        # Send file data with adaptive buffer adjustment
+        try:
+            sent = 0
+            chunk_count = 0
+            
+            with file_p.open('rb') as f:
+                while sent < file_size:
+                    chunk_start = time.time()
+                    
+                    # Use current buffer size from buffer manager
+                    current_buffer_size = buffer_manager.get_buffer_size() if buffer_manager else self.buffer_size
+                    
+                    # Read chunk of data
+                    chunk = f.read(current_buffer_size)
+                    if not chunk:
+                        break
+                        
+                    # Send chunk
+                    if not self._send_data(sock, self.FILE_TYPE, chunk):
+                        logger.error("Failed to send file chunk")
+                        return False
+                        
+                    chunk_end = time.time()
+                    chunk_time = chunk_end - chunk_start
+                    
+                    sent += len(chunk)
+                    chunk_count += 1
+                    
+                    # Adaptive buffer adjustment every 10 chunks
+                    if buffer_manager and chunk_count % 10 == 0 and chunk_time > 0:
+                        new_buffer_size = buffer_manager.adaptive_adjust(
+                            len(chunk), chunk_time, latency
+                        )
+                        # Update socket buffer if significantly changed
+                        if abs(new_buffer_size - current_buffer_size) > (current_buffer_size * 0.1):
+                            try:
+                                sock.setsockopt(socket.SOL_SOCKET, socket.SO_SNDBUF, new_buffer_size)
+                            except Exception as e:
+                                logger.debug(f"Failed to adjust socket buffer: {e}")
+                    
+                    # Show progress
+                    if file_size > current_buffer_size * 10:
+                        percent = int(sent * 100 / file_size)
+                        rate = len(chunk) / chunk_time if chunk_time > 0 else 0
+                        print(f"\rSending: {percent}% ({sent}/{file_size} bytes) - {rate/1024/1024:.2f} MB/s", end='')
+            
+            # Complete progress indicator
+            if file_size > self.buffer_size * 10:
+                print()
+                
+            # Wait for final acknowledgment
+            final_ack = self.receive_message(sock)
+            if not final_ack or not final_ack.startswith("SUCCESS"):
+                logger.error(f"File transfer not acknowledged as successful. Got: {final_ack}")
+                return False
+                
+            logger.info(f"File {file_name} ({file_size} bytes) sent successfully with adaptive buffering")
+            return True
+            
+        except Exception as e:
+            logger.error(f"Error sending file adaptively: {e}")
+            return False
+    
+    def receive_file_adaptive(self, sock: socket.socket, output_dir: Union[str, Path] = '.', buffer_manager=None, latency: float = 0.1) -> Optional[str]:
+        """
+        Receive a file with adaptive buffer size adjustment
+        
+        Args:
+            sock: Socket to receive from
+            output_dir: Directory to save the received file
+            buffer_manager: BufferManager instance for adaptive adjustment
+            latency: Network latency in seconds
+            
+        Returns:
+            Path to the saved file or None if error
+        """
+        if isinstance(output_dir, str):
+            output_p = Path(output_dir).expanduser()
+        else:
+            output_p = output_dir
+        
+        # Create output directory if it doesn't exist
+        if not output_p.exists():
+            output_p.mkdir(parents=True, exist_ok=True)
+            
+        # First receive file metadata
+        metadata = self.receive_message(sock)
+        if not metadata:
+            logger.error("Failed to receive file metadata")
+            return None
+            
+        try:
+            file_name, file_size_str = metadata.split('|')
+            file_size = int(file_size_str)
+            
+            logger.info(f"Preparing to receive file: {file_name} ({file_size} bytes)")
+            
+            # Send acknowledgment
+            if not self.send_message(sock, "READY"):
+                logger.error("Failed to send ready acknowledgment")
+                return None
+                
+            # Prepare to receive file data with adaptive buffering
+            output_path = output_p / f"received_{file_name}"
+            received_size = 0
+            chunk_count = 0
+            
+            with output_path.open('wb') as f:
+                while received_size < file_size:
+                    chunk_start = time.time()
+                    
+                    data_type, data = self._receive_data(sock)
+                    
+                    if data_type != self.FILE_TYPE or not isinstance(data, bytes):
+                        logger.error(f"Unexpected data type: {data_type}")
+                        return None
+                        
+                    f.write(data)
+                    chunk_end = time.time()
+                    chunk_time = chunk_end - chunk_start
+                    
+                    received_size += len(data)
+                    chunk_count += 1
+                    
+                    # Adaptive buffer adjustment every 10 chunks
+                    if buffer_manager and chunk_count % 10 == 0 and chunk_time > 0:
+                        new_buffer_size = buffer_manager.adaptive_adjust(
+                            len(data), chunk_time, latency
+                        )
+                        # Update our internal buffer size
+                        self.buffer_size = new_buffer_size
+                        
+                        # Update socket buffer if significantly changed
+                        current_buffer = sock.getsockopt(socket.SOL_SOCKET, socket.SO_RCVBUF)
+                        if abs(new_buffer_size - current_buffer) > (current_buffer * 0.1):
+                            try:
+                                sock.setsockopt(socket.SOL_SOCKET, socket.SO_RCVBUF, new_buffer_size)
+                            except Exception as e:
+                                logger.debug(f"Failed to adjust socket receive buffer: {e}")
+                    
+                    # Show progress for large transfers
+                    if file_size > self.buffer_size * 10:
+                        percent = int(received_size * 100 / file_size)
+                        rate = len(data) / chunk_time if chunk_time > 0 else 0
+                        print(f"\rReceiving: {percent}% ({received_size}/{file_size} bytes) - {rate/1024/1024:.2f} MB/s", end='')
+            
+            # Complete progress indicator
+            if file_size > self.buffer_size * 10:
+                print()
+            
+            # Send final acknowledgment
+            if not self.send_message(sock, "SUCCESS"):
+                logger.warning("Failed to send success acknowledgment")
+                
+            logger.info(f"File received successfully with adaptive buffering: {output_path}")
+            return str(output_path)
+            
+        except Exception as e:
+            logger.error(f"Error receiving file adaptively: {e}")
             return None
 
 # Example message handler function

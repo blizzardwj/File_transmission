@@ -1,3 +1,4 @@
+import os
 import socket
 import subprocess
 import time
@@ -40,13 +41,42 @@ class SSHConfig:
         return cmd
 
 class BufferManager:
-    """Manages the buffer size in jump server for optimal transfer speed"""
+    """Manages the buffer size for optimal transfer speed with adaptive adjustment"""
     
     # Default buffer sizes in bytes
     DEFAULT_BUFFER_SIZE = 64 * 1024  # 64KB
     
     def __init__(self, initial_size: int = DEFAULT_BUFFER_SIZE):
         self.buffer_size = initial_size
+        self.transfer_history = []  # Store transfer performance history
+        self.adjustment_factor = 0.2  # 20% adjustment per iteration
+        
+    def measure_initial_bandwidth(self, sock: socket.socket) -> float:
+        """
+        Measure initial bandwidth by sending test data
+        
+        Args:
+            sock: Socket to test on
+            
+        Returns:
+            Estimated bandwidth in bytes/second
+        """
+        test_data = b'0' * (32 * 1024)  # 32KB test data
+        start_time = time.time()
+        
+        try:
+            sock.sendall(test_data)
+            end_time = time.time()
+            
+            transfer_time = end_time - start_time
+            if transfer_time > 0:
+                bandwidth = len(test_data) / transfer_time
+                logger.info(f"Measured initial bandwidth: {bandwidth / 1024 / 1024:.2f} MB/s")
+                return bandwidth
+        except Exception as e:
+            logger.warning(f"Failed to measure initial bandwidth: {e}")
+            
+        return 1024 * 1024  # 1MB/s default
         
     def adjust_buffer_size(self, transfer_rate: float, latency: float) -> int:
         """
@@ -70,14 +100,71 @@ class BufferManager:
         logger.info(f"Buffer size adjusted to: {self.buffer_size / 1024:.2f}KB")
         return self.buffer_size
     
+    def adaptive_adjust(self, bytes_transferred: int, transfer_time: float, latency: float) -> int:
+        """
+        Adaptively adjust buffer size based on actual transfer performance
+        
+        Args:
+            bytes_transferred: Number of bytes transferred
+            transfer_time: Time taken for transfer in seconds
+            latency: Network latency in seconds
+            
+        Returns:
+            New buffer size in bytes
+        """
+        if transfer_time <= 0:
+            return self.buffer_size
+            
+        # Calculate actual transfer rate
+        actual_rate = bytes_transferred / transfer_time
+        
+        # Store transfer performance
+        self.transfer_history.append({
+            'rate': actual_rate,
+            'time': transfer_time,
+            'bytes': bytes_transferred
+        })
+        
+        # Keep only recent history (last 10 transfers)
+        if len(self.transfer_history) > 10:
+            self.transfer_history.pop(0)
+        
+        # Calculate optimal size based on BDP
+        optimal_size = int(actual_rate * latency)
+        
+        # Gradual adjustment to avoid oscillation
+        new_size = int(self.buffer_size * (1 - self.adjustment_factor) + 
+                      optimal_size * self.adjustment_factor)
+        
+        # Apply constraints
+        min_size = 8 * 1024  # 8KB minimum
+        max_size = 8 * 1024 * 1024  # 8MB maximum
+        
+        self.buffer_size = max(min_size, min(new_size, max_size))
+        
+        logger.debug(f"Adaptive buffer adjustment: {actual_rate/1024/1024:.2f} MB/s -> {self.buffer_size/1024:.2f}KB buffer")
+        return self.buffer_size
+    
     def get_buffer_size(self) -> int:
         """Get current buffer size"""
         return self.buffer_size
+    
+    def get_average_transfer_rate(self) -> float:
+        """Get average transfer rate from recent history"""
+        if not self.transfer_history:
+            return 1024 * 1024  # 1MB/s default
+            
+        total_bytes = sum(h['bytes'] for h in self.transfer_history)
+        total_time = sum(h['time'] for h in self.transfer_history)
+        
+        if total_time > 0:
+            return total_bytes / total_time
+        return 1024 * 1024
 
 class NetworkMonitor:
     """Monitors network conditions to optimize transfer"""
     
-    def __init__(self, target_host: str, ssh_config: SSHConfig = None):
+    def __init__(self, target_host: str, ssh_config: Optional[SSHConfig] = None):
         self.target_host = target_host
         self.ssh_config = ssh_config
         self.latency = 0.1  # Initial default latency estimate (100ms)
@@ -461,7 +548,7 @@ class SSHTunnelForward(SSHTunnelBase):
 class SSHTunnelReverse(SSHTunnelBase):
     """Manages reverse SSH tunnel creation and maintenance"""
     
-    def __init__(self, ssh_config: SSHConfig, remote_port: int, local_host: str = "localhost", local_port: int = None):
+    def __init__(self, ssh_config: SSHConfig, remote_port: int, local_host: str = "localhost", local_port: Optional[int] = None):
         super().__init__(ssh_config)
         self.remote_port = remote_port
         self.local_host = local_host
