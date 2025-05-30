@@ -2,7 +2,7 @@
 """
 多进度条显示测试
 
-此脚本演示如何使用 tqdm 和 rich 库：
+实验目标：使用 tqdm 和 rich 库实现多进度条显示
 1. 在不同线程中分别显示进度条，而不会相互覆盖。
 2. 在任务结束的时候，进度条不会消失，保留在终端中。
 3. 模拟的文件传输过程会显示发送和接收的进度。
@@ -18,7 +18,7 @@
 tqdm 测试完成!
 ```
 
-接收进度条在任务结束前后显示两次，原因在于 tqdm obj 在 __exit__ 中会调用 close()，send_file obj 在调用 close() 时使用了如下代码：
+接收进度条在任务结束前后显示两次，原因在于 tqdm obj 在 __exit__ 中会调用 close()，使用了如下代码：
 ```
         with self._lock:
             if leave:
@@ -31,9 +31,22 @@ tqdm 测试完成!
                 if self.display(msg='', pos=pos) and not pos:
                     fp_write('\r')
 ```
-fp_write('\n') 会将光标移动到下一行，导致接收进度条显示两次。
+fp_write('\n') 会将光标移动到下一行，如果两个线程中的send_file progress bar 和 receive_file progress bar 分别在 position=0 和 position=1， 那么
 
-这里为什么要使用 fp_write('\n'), 如何解决接收进度条显示两次的问题？
+1. fp_write('\n') 会将光标移动到下一行之后, position=1 的位置是否还是相对于当前光标的行数？
+Answer: 是的， position=1 的位置还是相对于当前光标的行数。
+
+2. 如果 send_file obj 在 __exit__ 中调用 close() 后， receive_file obj 调用了 update()，是否会在原来行的下一行显示，导致原始的行没有更新？
+Answer： 是的。
+
+3. 逻辑上当fp_write('\n') 之后，所有 使用update 的 obj，position都要 减少1。这样是不是更合理？
+Answer： 虽然从逻辑上合理，但是实现复杂度较高。
+    首先修改涉及全局状态管理，需要维护所有活跃的tqdm对象注册表，
+    其次涉及通信机制，需要线程安全的通信，
+    最后要保证操作原子性，位置调整必须是原子操作。
+
+
+
 
 依赖:
 - tqdm
