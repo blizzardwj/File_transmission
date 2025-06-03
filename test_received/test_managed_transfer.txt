@@ -1,0 +1,2 @@
+Hello from managed file transfer!
+This is a test file.
