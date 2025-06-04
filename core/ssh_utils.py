@@ -45,9 +45,16 @@ class BufferManager:
     
     # Default buffer sizes in bytes
     DEFAULT_BUFFER_SIZE = 64 * 1024  # 64KB
-    
-    def __init__(self, initial_size: int = DEFAULT_BUFFER_SIZE):
+    MINIMUM_BUFFER_SIZE = 8 * 1024  # 8KB minimum buffer size
+    MAXIMUM_BUFFER_SIZE = 1 * 1024 * 1024  # 1MB maximum buffer size
+
+    def __init__(self, 
+        initial_size: int = DEFAULT_BUFFER_SIZE,
+        max_size: int = MAXIMUM_BUFFER_SIZE
+    ):
         self.buffer_size = initial_size
+        self.max_size = max_size
+        self.min_size = self.MINIMUM_BUFFER_SIZE
         self.transfer_history = []  # Store transfer performance history
         self.adjustment_factor = 0.2  # 20% adjustment per iteration
         
@@ -93,9 +100,9 @@ class BufferManager:
         optimal_size = int(transfer_rate * latency)
         
         # Apply constraints to keep the buffer size reasonable
-        min_size = 8 * 1024  # 8KB minimum
-        max_size = 8 * 1024 * 1024  # 8MB maximum
-        
+        min_size = self.min_size  # 8KB minimum
+        max_size = self.max_size  # 1MB maximum
+
         self.buffer_size = max(min_size, min(optimal_size, max_size))
         logger.info(f"Buffer size adjusted to: {self.buffer_size / 1024:.2f}KB")
         return self.buffer_size
@@ -137,9 +144,9 @@ class BufferManager:
                       optimal_size * self.adjustment_factor)
         
         # Apply constraints
-        min_size = 8 * 1024  # 8KB minimum
-        max_size = 8 * 1024 * 1024  # 8MB maximum
-        
+        min_size = self.min_size  # 8KB minimum
+        max_size = self.max_size  # 1MB maximum
+
         self.buffer_size = max(min_size, min(new_size, max_size))
         
         logger.debug(f"Adaptive buffer adjustment: {actual_rate/1024/1024:.2f} MB/s -> {self.buffer_size/1024:.2f}KB buffer")
@@ -153,7 +160,7 @@ class BufferManager:
         """Get average transfer rate from recent history"""
         if not self.transfer_history:
             return 1024 * 1024  # 1MB/s default
-            
+
         total_bytes = sum(h['bytes'] for h in self.transfer_history)
         total_time = sum(h['time'] for h in self.transfer_history)
         

@@ -19,14 +19,20 @@ import time
 from typing import Callable, Optional, Tuple, Union
 from core.ssh_utils import BufferManager
 from core.utils import build_logger
+from core.progress_observer import ProgressSubject
+from core.progress_events import (
+    TaskStartedEvent, ProgressAdvancedEvent, TaskFinishedEvent, 
+    TaskErrorEvent, generate_task_id
+)
 
 # Configure logging
 logger = build_logger(__name__)
 
-class SocketDataTransfer:
+class SocketDataTransfer(ProgressSubject):
     """
     Unified class for handling data transfer over sockets using a specific protocol.
     Supports both message-based communication and file transfer.
+    Extends ProgressSubject to support progress event publishing.
     """
     
     # Protocol constants
@@ -41,6 +47,7 @@ class SocketDataTransfer:
         Args:
             buffer_size: Custom buffer size for data transfers. If None, uses DEFAULT_BUFFER_SIZE.
         """
+        super().__init__()  # Initialize ProgressSubject
         self.server_socket = None
         self.running = False
         self.buffer_size = buffer_size if buffer_size is not None else self.DEFAULT_BUFFER_SIZE
@@ -487,15 +494,27 @@ class SocketDataTransfer:
         file_size = file_p.stat().st_size
         file_name = file_p.name
         
+        # Generate unique task ID for this transfer
+        task_id = generate_task_id()
+        
+        # Notify observers that task started
+        self.notify_observers(TaskStartedEvent(
+            task_id=task_id,
+            description=f"Sending {file_name}",
+            total=file_size
+        ))
+        
         # First send file metadata as a message
         metadata = f"{file_name}|{file_size}"
         if not self.send_message(sock, metadata):
+            self.notify_observers(TaskErrorEvent(task_id, "Failed to send file metadata"))
             return False
             
         # Wait for acknowledgment
         ack = self.receive_message(sock)
         if not ack or not ack.startswith("READY"):
             logger.error(f"Did not receive proper acknowledgment. Got: {ack}")
+            self.notify_observers(TaskErrorEvent(task_id, f"Invalid acknowledgment: {ack}"))
             return False
             
         # Send file data with adaptive buffer adjustment
@@ -518,6 +537,7 @@ class SocketDataTransfer:
                     # Send chunk
                     if not self._send_data(sock, self.FILE_TYPE, chunk):
                         logger.error("Failed to send file chunk")
+                        self.notify_observers(TaskErrorEvent(task_id, "Failed to send file chunk"))
                         return False
                         
                     chunk_end = time.time()
@@ -525,6 +545,9 @@ class SocketDataTransfer:
                     
                     sent += len(chunk)
                     chunk_count += 1
+                    
+                    # Notify observers of progress
+                    self.notify_observers(ProgressAdvancedEvent(task_id, advance=len(chunk)))
                     
                     # Adaptive buffer adjustment every 10 chunks
                     if buffer_manager and chunk_count % 10 == 0 and chunk_time > 0:
@@ -537,28 +560,27 @@ class SocketDataTransfer:
                                 sock.setsockopt(socket.SOL_SOCKET, socket.SO_SNDBUF, new_buffer_size)
                             except Exception as e:
                                 logger.debug(f"Failed to adjust socket buffer: {e}")
-                    
-                    # Show progress
-                    if file_size > current_buffer_size * 10:
-                        percent = int(sent * 100 / file_size)
-                        rate = len(chunk) / chunk_time if chunk_time > 0 else 0
-                        print(f"\rSending: {percent}% ({sent}/{file_size} bytes) - {rate/1024/1024:.2f} MB/s", end='')
             
-            # Complete progress indicator
-            if file_size > self.buffer_size * 10:
-                print()
-                
             # Wait for final acknowledgment
             final_ack = self.receive_message(sock)
             if not final_ack or not final_ack.startswith("SUCCESS"):
                 logger.error(f"File transfer not acknowledged as successful. Got: {final_ack}")
+                self.notify_observers(TaskErrorEvent(task_id, f"Transfer not acknowledged: {final_ack}"))
                 return False
                 
+            # Notify observers of successful completion
+            self.notify_observers(TaskFinishedEvent(
+                task_id=task_id,
+                description=f"Sending {file_name} [green]✓ Complete",
+                success=True
+            ))
+            
             logger.info(f"File {file_name} ({file_size} bytes) sent successfully with adaptive buffering")
             return True
             
         except Exception as e:
             logger.error(f"Error sending file adaptively: {e}")
+            self.notify_observers(TaskErrorEvent(task_id, f"Send error: {str(e)}"))
             return False
     
     def receive_file_adaptive(self, sock: socket.socket, output_dir: Union[str, Path] = '.', buffer_manager=None, latency: float = 0.1) -> Optional[str]:
@@ -595,9 +617,20 @@ class SocketDataTransfer:
             
             logger.info(f"Preparing to receive file: {file_name} ({file_size} bytes)")
             
+            # Generate unique task ID for this transfer
+            task_id = generate_task_id()
+            
+            # Notify observers that task started
+            self.notify_observers(TaskStartedEvent(
+                task_id=task_id,
+                description=f"Receiving {file_name}",
+                total=file_size
+            ))
+            
             # Send acknowledgment
             if not self.send_message(sock, "READY"):
                 logger.error("Failed to send ready acknowledgment")
+                self.notify_observers(TaskErrorEvent(task_id, "Failed to send ready acknowledgment"))
                 return None
                 
             # Prepare to receive file data with adaptive buffering
@@ -613,6 +646,7 @@ class SocketDataTransfer:
                     
                     if data_type != self.FILE_TYPE or not isinstance(data, bytes):
                         logger.error(f"Unexpected data type: {data_type}")
+                        self.notify_observers(TaskErrorEvent(task_id, f"Unexpected data type: {data_type}"))
                         return None
                         
                     f.write(data)
@@ -621,6 +655,9 @@ class SocketDataTransfer:
                     
                     received_size += len(data)
                     chunk_count += 1
+                    
+                    # Notify observers of progress
+                    self.notify_observers(ProgressAdvancedEvent(task_id, advance=len(data)))
                     
                     # Adaptive buffer adjustment every 10 chunks
                     if buffer_manager and chunk_count % 10 == 0 and chunk_time > 0:
@@ -637,26 +674,30 @@ class SocketDataTransfer:
                                 sock.setsockopt(socket.SOL_SOCKET, socket.SO_RCVBUF, new_buffer_size)
                             except Exception as e:
                                 logger.debug(f"Failed to adjust socket receive buffer: {e}")
-                    
-                    # Show progress for large transfers
-                    if file_size > self.buffer_size * 10:
-                        percent = int(received_size * 100 / file_size)
-                        rate = len(data) / chunk_time if chunk_time > 0 else 0
-                        print(f"\rReceiving: {percent}% ({received_size}/{file_size} bytes) - {rate/1024/1024:.2f} MB/s", end='')
-            
-            # Complete progress indicator
-            if file_size > self.buffer_size * 10:
-                print()
             
             # Send final acknowledgment
             if not self.send_message(sock, "SUCCESS"):
                 logger.warning("Failed to send success acknowledgment")
+            
+            # Notify observers of successful completion
+            self.notify_observers(TaskFinishedEvent(
+                task_id=task_id,
+                description=f"Receiving {file_name} [green]✓ Complete",
+                success=True
+            ))
                 
             logger.info(f"File received successfully with adaptive buffering: {output_path}")
             return str(output_path)
             
         except Exception as e:
             logger.error(f"Error receiving file adaptively: {e}")
+            # task_id 可能未定义，需要检查
+            try:
+                self.notify_observers(TaskErrorEvent(task_id, f"Receive error: {str(e)}"))
+            except NameError:
+                # task_id 未定义，创建一个临时的用于错误报告
+                temp_task_id = generate_task_id()
+                self.notify_observers(TaskErrorEvent(temp_task_id, f"Receive error (no task): {str(e)}"))
             return None
 
 # Example message handler function
