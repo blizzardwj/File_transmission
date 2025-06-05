@@ -8,7 +8,7 @@ It abstracts the communication details to provide consistent behavior across
 different types of tunnels (forward or reverse).
 
 TODO: 
-1. Asyncronous version
+1. Asynchronous version
 """
 
 # import os

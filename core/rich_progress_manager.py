@@ -23,6 +23,7 @@ try:
         TimeRemainingColumn, TimeElapsedColumn, TaskID
     )
     from rich.console import Console
+    from rich.table import Column
     RICH_AVAILABLE = True
 except ImportError:
     RICH_AVAILABLE = False
@@ -35,8 +36,10 @@ class RichProgressObserver(IProgressObserver):
     监听进度事件并更新 Rich 进度条显示
     """
     
-    def __init__(self, progress_instance: Optional['Progress'] = None, 
-                 console: Optional['Console'] = None):
+    def __init__(self, 
+        progress_instance: Optional['Progress'] = None, 
+        console: Optional['Console'] = None,
+    ):
         """
         初始化 Rich 进度条观察者
         
@@ -56,7 +59,10 @@ class RichProgressObserver(IProgressObserver):
         # 如果没有外部 Progress 实例，创建内部实例
         if not self._external_progress:
             self._progress_instance = Progress(
-                TextColumn("[bold blue]{task.description}", table_column_options={"overflow": "fold"}),
+                TextColumn(
+                    "[bold blue]{task.description}", 
+                    table_column=Column(overflow="fold")
+                ),
                 BarColumn(),
                 TaskProgressColumn(),
                 TimeElapsedColumn(),

@@ -3,11 +3,13 @@
 Progress Observer Module
 
 定义进度观察者的抽象接口，用于实现观察者模式的进度更新机制。
+
+Usually, Event subjects are used to notify observers
 """
 
 from abc import ABC, abstractmethod
 from typing import List
-from .progress_events import ProgressEvent
+from core.progress_events import ProgressEvent
 
 class IProgressObserver(ABC):
     """进度观察者接口"""
@@ -24,9 +26,9 @@ class IProgressObserver(ABC):
 
 class ProgressSubject:
     """
-    进度事件发布者 (Subject)
+    进度事件发布者 (Subject)，事件主体，负责发布事件
     
-    管理观察者列表并发布事件到所有注册的观察者
+    管理观察者列表并发布事件到所有注册的观察者 or listeners.
     """
     
     def __init__(self):
