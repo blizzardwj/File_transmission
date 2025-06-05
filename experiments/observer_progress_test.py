@@ -18,7 +18,7 @@ from core.ssh_utils import BufferManager
 
 # 尝试导入Rich进度条管理器
 try:
-    from core.rich_progress_manager import RichProgressObserver, create_progress_observer
+    from core.rich_progress_observer import RichProgressObserver, create_progress_observer
     from rich.progress import Progress
     from rich.console import Console
     RICH_AVAILABLE = True
