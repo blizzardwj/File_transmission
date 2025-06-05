@@ -13,7 +13,7 @@ from pathlib import Path
 # 添加项目根目录到Python路径
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-from core.socket_data_transfer import SocketDataTransfer
+from core.socket_transfer_subject import SocketTransferSubject
 from core.ssh_utils import BufferManager
 
 # 尝试导入Rich进度条管理器
@@ -41,7 +41,7 @@ def create_test_file(file_path: Path, size_mb: int = 10):
     
     print(f"Test file created: {file_path.stat().st_size} bytes")
 
-def sender_thread(sender: SocketDataTransfer, sock, file_path: Path, buffer_manager: BufferManager):
+def sender_thread(sender: SocketTransferSubject, sock, file_path: Path, buffer_manager: BufferManager):
     """发送端线程"""
     try:
         print(f"[SENDER] Starting to send file: {file_path}")
@@ -55,7 +55,7 @@ def sender_thread(sender: SocketDataTransfer, sock, file_path: Path, buffer_mana
     finally:
         sock.close()
 
-def receiver_thread(receiver: SocketDataTransfer, sock, output_dir: Path, buffer_manager: BufferManager):
+def receiver_thread(receiver: SocketTransferSubject, sock, output_dir: Path, buffer_manager: BufferManager):
     """接收端线程"""
     try:
         print(f"[RECEIVER] Waiting to receive file in: {output_dir}")
@@ -96,11 +96,11 @@ def run_observer_progress_test():
     sender_buffer_manager = BufferManager(initial_size=64*1024, max_size=1024*1024)
     receiver_buffer_manager = BufferManager(initial_size=64*1024, max_size=1024*1024)
     
-    # 创建SocketDataTransfer实例
-    sender1 = SocketDataTransfer()
-    sender2 = SocketDataTransfer()
-    receiver1 = SocketDataTransfer()
-    receiver2 = SocketDataTransfer()
+    # 创建SocketTransferSubject实例
+    sender1 = SocketTransferSubject()
+    sender2 = SocketTransferSubject()
+    receiver1 = SocketTransferSubject()
+    receiver2 = SocketTransferSubject()
     
     if RICH_AVAILABLE:
         print("\n使用Rich进度条显示...")

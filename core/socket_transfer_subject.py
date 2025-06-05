@@ -28,7 +28,7 @@ from core.progress_events import (
 # Configure logging
 logger = build_logger(__name__)
 
-class SocketDataTransfer(ProgressSubject):
+class SocketTransferSubject(ProgressSubject):
     """
     Unified class for handling data transfer over sockets using a specific protocol.
     Supports both message-based communication and file transfer.
@@ -51,7 +51,7 @@ class SocketDataTransfer(ProgressSubject):
         self.server_socket = None
         self.running = False
         self.buffer_size = buffer_size if buffer_size is not None else self.DEFAULT_BUFFER_SIZE
-        logger.debug(f"SocketDataTransfer initialized with buffer_size={self.buffer_size}")
+        logger.debug(f"SocketTransferSubject initialized with buffer_size={self.buffer_size}")
     
     def _send_data(self, sock: socket.socket, data_type: str, data: Union[str, bytes]) -> bool:
         """
@@ -703,7 +703,7 @@ class SocketDataTransfer(ProgressSubject):
 # Example message handler function
 def echo_message_handler(sock: socket.socket) -> None:
     """Example handler that echoes messages"""
-    transfer = SocketDataTransfer()
+    transfer = SocketTransferSubject()
     try:
         # Send welcome message
         transfer.send_message(sock, "Welcome to echo server! Send a message and I'll echo it back.")
@@ -726,7 +726,7 @@ def echo_message_handler(sock: socket.socket) -> None:
 # Example file server handler
 def file_server_handler(sock: socket.socket) -> None:
     """Example handler that receives files"""
-    transfer = SocketDataTransfer()
+    transfer = SocketTransferSubject()
     try:
         # Send welcome message
         transfer.send_message(sock, "Welcome to file server! Send a file using the file protocol.")
@@ -752,7 +752,7 @@ def file_server_handler(sock: socket.socket) -> None:
 # Example usage (not executed when imported)
 if __name__ == "__main__":
     # Example server
-    transfer = SocketDataTransfer()
+    transfer = SocketTransferSubject()
     
     # Start echo server
     print("Starting echo server on port 9000...")

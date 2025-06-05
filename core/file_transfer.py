@@ -16,7 +16,7 @@ from ssh_utils import (
     SSHTunnelForward,
     SSHTunnelReverse
 )
-from socket_data_transfer import SocketDataTransfer
+from socket_transfer_subject import SocketTransferSubject
 
 # Configure logging
 logger = build_logger(__name__)
@@ -158,8 +158,8 @@ class FileSender(FileTransferBase):
                 
             sock.setsockopt(socket.SOL_SOCKET, socket.SO_SNDBUF, buffer_size)
             
-            # Create SocketDataTransfer with optimized buffer size and buffer manager
-            transfer = SocketDataTransfer(buffer_size=buffer_size)
+            # Create SocketTransferSubject with optimized buffer size and buffer manager
+            transfer = SocketTransferSubject(buffer_size=buffer_size)
             
             # Use adaptive file transfer if available, otherwise fall back to standard transfer
             if hasattr(transfer, 'send_file_adaptive'):
@@ -280,8 +280,8 @@ class FileReceiver(FileTransferBase):
             buffer_size = self.buffer_manager.adjust_buffer_size(estimated_bandwidth, latency)
             client_sock.setsockopt(socket.SOL_SOCKET, socket.SO_RCVBUF, buffer_size)
             
-            # Create SocketDataTransfer with optimized buffer size
-            transfer = SocketDataTransfer(buffer_size=buffer_size)
+            # Create SocketTransferSubject with optimized buffer size
+            transfer = SocketTransferSubject(buffer_size=buffer_size)
             
             # Record start time for transfer statistics
             start_time = time.time()
