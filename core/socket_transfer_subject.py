@@ -153,10 +153,10 @@ class SocketTransferSubject(ProgressSubject):
                 chunks.append(chunk)
                 received += len(chunk)
                 
-                # Show progress for large transfers
-                if data_type == self.FILE_TYPE and size > self.buffer_size * 10:
-                    percent = int(received * 100 / size)
-                    print(f"\rReceiving: {percent}% ({received}/{size} bytes)", end='')
+                # # Show progress for large transfers
+                # if data_type == self.FILE_TYPE and size > self.buffer_size * 10:
+                #     percent = int(received * 100 / size)
+                #     print(f"\rReceiving: {percent}% ({received}/{size} bytes)", end='')
             
             # Complete progress indicator
             if data_type == self.FILE_TYPE and size > self.buffer_size * 10:

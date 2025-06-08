@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Reverse SSH Tunnel Experiment
+Reverse SSH Tunnel Experiment with Progress Observer Integration
 
 This script demonstrates establishing a reverse SSH tunnel between two devices:
 1. Local Machine: Where this script runs
@@ -19,6 +19,25 @@ TWO TASKS:
 In a reverse tunnel, a port on the remote jump server is forwarded to a local port on your machine.
 This allows external clients to connect to the jump server's port and have their traffic forwarded to 
 your local machine, which is useful when your machine is behind a firewall or NAT.
+
+PROGRESS OBSERVER INTEGRATION:
+This script now includes observer pattern integration for file transfer progress tracking:
+- ObserverContext: Context manager for automatic observer lifecycle management
+- create_observer_if_enabled(): Factory function for creating observers based on configuration
+- Integrated into file_server_handler() and simulate_client_file_exchange() functions
+- Configurable via DEBUG_CONFIG["use_progress_observer"] and DEBUG_CONFIG["use_rich_progress"]
+- Supports Rich progress bars (if available) or fallback to simple text output
+- Ensures proper cleanup of observers even when exceptions occur
+
+OBSERVER MANAGEMENT APPROACHES:
+1. Context Manager Pattern (implemented): Uses 'with ObserverContext(transfer, observer):' 
+   - Automatically adds observer on entry, removes on exit
+   - Guarantees cleanup even with exceptions
+   - Clear scope definition for observer usage
+
+2. Alternative approaches considered but not implemented:
+   - Decorator Pattern: @with_observer decorator for handler functions
+   - Class-based: ObservableTransfer class extending SocketTransferSubject
 
 CONFIGURATION REQUIREMENTS:
 The jumper server (remote host) should let the remote port (it own port) be accessible from the external network. Here are the steps:
@@ -68,6 +87,101 @@ logging.basicConfig(
 )
 logger = logging.getLogger('reverse_tunnel_experiment')
 
+# Import observer-related modules
+try:
+    from core.rich_progress_observer import create_progress_observer, RichProgressObserver
+    from rich.progress import Progress
+    from rich.console import Console
+    RICH_AVAILABLE = True
+except ImportError as e:
+    logger.warning(f"Rich not available ({e}), using fallback observer")
+    from core.rich_progress_observer import create_progress_observer
+    RICH_AVAILABLE = False
+
+
+class ObserverContext:
+    """
+    Context manager for automatic observer management
+    
+    Ensures that observers are properly added and removed from SocketTransferSubject instances,
+    and manages the observer's lifecycle (start/stop) if the observer supports it.
+    This ensures proper cleanup even if exceptions occur during the transfer operations.
+    """
+    
+    def __init__(self, subject: SocketTransferSubject, observer):
+        """
+        Initialize the observer context
+        
+        Args:
+            subject: SocketTransferSubject instance to manage
+            observer: Observer instance implementing IProgressObserver interface
+        """
+        self.subject = subject
+        self.observer = observer
+        self._observer_added = False
+        self._observer_started = False
+    
+    def __enter__(self):
+        """Context manager entry - start observer and add to subject"""
+        if self.observer:
+            # Start the observer if it has a start() method
+            if hasattr(self.observer, 'start') and callable(getattr(self.observer, 'start')):
+                try:
+                    self.observer.start()
+                    self._observer_started = True
+                    logger.debug(f"Observer {self.observer.__class__.__name__} started")
+                except Exception as e:
+                    logger.warning(f"Failed to start observer {self.observer.__class__.__name__}: {e}")
+            
+            # Add observer to subject
+            self.subject.add_observer(self.observer)
+            self._observer_added = True
+            logger.debug(f"Observer {self.observer.__class__.__name__} added to transfer subject")
+        return self
+    
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        """Context manager exit - remove observer from subject and stop observer"""
+        if self.observer:
+            # Remove observer from subject
+            if self._observer_added:
+                self.subject.remove_observer(self.observer)
+                self._observer_added = False
+                logger.debug(f"Observer {self.observer.__class__.__name__} removed from transfer subject")
+            
+            # Stop the observer if it was started and has a stop() method
+            if self._observer_started and hasattr(self.observer, 'stop') and callable(getattr(self.observer, 'stop')):
+                try:
+                    self.observer.stop()
+                    self._observer_started = False
+                    logger.debug(f"Observer {self.observer.__class__.__name__} stopped")
+                except Exception as e:
+                    logger.warning(f"Failed to stop observer {self.observer.__class__.__name__}: {e}")
+        
+        return False  # Don't suppress exceptions
+
+
+def create_observer_if_enabled(console=None):
+    """
+    Create a progress observer if enabled in DEBUG_CONFIG
+    
+    Args:
+        console: Rich Console 实例（可选）
+        
+    Returns:
+        IProgressObserver instance or None if disabled
+    """
+    if not DEBUG_CONFIG.get("use_progress_observer", False):
+        return None
+    
+    try:
+        use_rich = DEBUG_CONFIG.get("use_rich_progress", True) and RICH_AVAILABLE
+        # 默认请求共享观察者以避免进度条重叠
+        return create_progress_observer(use_rich=use_rich, shared_mode=True, console=console)
+    except Exception as e:
+        logger.warning(f"Failed to create progress observer: {e}")
+        return None
+
+
 def message_server_handler(sock: socket.socket) -> None:
     """
     Handle a client connection for message exchange server
@@ -104,91 +218,94 @@ def file_server_handler(sock: socket.socket) -> None:
     """
     transfer = SocketTransferSubject()
     buffer_manager = BufferManager()
+    observer = create_observer_if_enabled()
     
-    try:
-        # Send welcome message, give the name or ip of localhost
-        localhost = socket.gethostname()
-        sock_name = sock.getsockname()
-        transfer.send_message(sock, f"Hello from the {localhost}! This is a file exchange service accessed via reverse tunnel. I am listening on port {sock_name[1]}")
-        
-        # Measure initial latency by timing a ping-pong message
-        start_time = time.time()
-        transfer.send_message(sock, "PING")
-        pong = transfer.receive_message(sock)
-        latency = (time.time() - start_time) / 2.0  # Round trip time / 2
-        logger.info(f"Measured latency: {latency * 1000:.2f}ms")
-        
-        # Wait for command (but handle client ping first if it comes)
-        command = transfer.receive_message(sock)
-        if command == "CLIENT_PING":
-            # Respond to client ping and get actual command
-            transfer.send_message(sock, "PONG")
+    # Add observer to the transfer subject and start the observer if available
+    with ObserverContext(transfer, observer):
+        try:
+            # Send welcome message, give the name or ip of localhost
+            localhost = socket.gethostname()
+            sock_name = sock.getsockname()
+            transfer.send_message(sock, f"Hello from the {localhost}! This is a file exchange service accessed via reverse tunnel. I am listening on port {sock_name[1]}")
+            
+            # Measure initial latency by timing a ping-pong message
+            start_time = time.time()
+            transfer.send_message(sock, "PING")
+            pong = transfer.receive_message(sock)
+            latency = (time.time() - start_time) / 2.0  # Round trip time / 2
+            logger.info(f"Measured latency: {latency * 1000:.2f}ms")
+            
+            # Wait for command (but handle client ping first if it comes)
             command = transfer.receive_message(sock)
-        
-        if not command:
-            logger.info("Client disconnected")
-            return
+            if command == "CLIENT_PING":
+                # Respond to client ping and get actual command
+                transfer.send_message(sock, "PONG")
+                command = transfer.receive_message(sock)
             
-        if command.startswith("SEND_FILE"):
-            # Receive file using adaptive or standard method based on configuration
-            use_adaptive = DEBUG_CONFIG.get("use_adaptive_transfer", True)
-            logger.info(f"Client wants to send a file via reverse tunnel (using {'adaptive' if use_adaptive else 'standard'} buffering)")
-            output_dir = DEBUG_CONFIG.get("received_files_dir", "received_files")
-            output_d = Path(output_dir).expanduser()
-            output_d.mkdir(parents=True, exist_ok=True)
-            
-            if use_adaptive:
-                # Try adaptive receive first, fallback to standard method
-                file_path = transfer.receive_file_adaptive(sock, output_d, buffer_manager, latency)
-                if not file_path:
-                    logger.warning("Adaptive receive failed, falling back to standard method")
+            if not command:
+                logger.info("Client disconnected")
+                return
+                
+            if command.startswith("SEND_FILE"):
+                # Receive file using adaptive or standard method based on configuration
+                use_adaptive = DEBUG_CONFIG.get("use_adaptive_transfer", True)
+                logger.info(f"Client wants to send a file via reverse tunnel (using {'adaptive' if use_adaptive else 'standard'} buffering)")
+                output_dir = DEBUG_CONFIG.get("received_files_dir", "received_files")
+                output_d = Path(output_dir).expanduser()
+                output_d.mkdir(parents=True, exist_ok=True)
+                
+                if use_adaptive:
+                    # Try adaptive receive first, fallback to standard method
+                    file_path = transfer.receive_file_adaptive(sock, output_d, buffer_manager, latency)
+                    if not file_path:
+                        logger.warning("Adaptive receive failed, falling back to standard method")
+                        file_path = transfer.receive_file(sock, output_d)
+                else:
+                    # Use standard method directly
                     file_path = transfer.receive_file(sock, output_d)
-            else:
-                # Use standard method directly
-                file_path = transfer.receive_file(sock, output_d)
-            
-            if file_path:
-                transfer.send_message(sock, f"File received and saved as {file_path}")
-                if use_adaptive:
-                    logger.info(f"Final buffer size used: {buffer_manager.get_buffer_size()/1024:.2f}KB")
-                    logger.info(f"Average transfer rate: {buffer_manager.get_average_transfer_rate()/1024/1024:.2f}MB/s")
-            else:
-                transfer.send_message(sock, "Failed to receive file")
                 
-        elif command.startswith("GET_FILE"):
-            # Send file using adaptive or standard method based on configuration
-            _, file_name = command.split(":", 1)
-            use_adaptive = DEBUG_CONFIG.get("use_adaptive_transfer", True)
-            logger.info(f"Client requested file: {file_name} (using {'adaptive' if use_adaptive else 'standard'} buffering)")
-            
-            # Create a demo file if it doesn't exist
-            if not os.path.exists(file_name):
-                with open(file_name, 'w') as f:
-                    f.write(f"This is a test file '{file_name}' from the local machine (reverse tunnel).\n" * 10)
-            
-            if use_adaptive:
-                # Try adaptive send first, fallback to standard method
-                success = transfer.send_file_adaptive(sock, file_name, buffer_manager, latency)
-                if not success:
-                    logger.warning("Adaptive send failed, falling back to standard method")
+                if file_path:
+                    transfer.send_message(sock, f"File received and saved as {file_path}")
+                    if use_adaptive:
+                        logger.info(f"Final buffer size used: {buffer_manager.get_buffer_size()/1024:.2f}KB")
+                        logger.info(f"Average transfer rate: {buffer_manager.get_average_transfer_rate()/1024/1024:.2f}MB/s")
+                else:
+                    transfer.send_message(sock, "Failed to receive file")
+                    
+            elif command.startswith("GET_FILE"):
+                # Send file using adaptive or standard method based on configuration
+                _, file_name = command.split(":", 1)
+                use_adaptive = DEBUG_CONFIG.get("use_adaptive_transfer", True)
+                logger.info(f"Client requested file: {file_name} (using {'adaptive' if use_adaptive else 'standard'} buffering)")
+                
+                # Create a demo file if it doesn't exist
+                if not os.path.exists(file_name):
+                    with open(file_name, 'w') as f:
+                        f.write(f"This is a test file '{file_name}' from the local machine (reverse tunnel).\n" * 10)
+                
+                if use_adaptive:
+                    # Try adaptive send first, fallback to standard method
+                    success = transfer.send_file_adaptive(sock, file_name, buffer_manager, latency)
+                    if not success:
+                        logger.warning("Adaptive send failed, falling back to standard method")
+                        success = transfer.send_file(sock, file_name)
+                else:
+                    # Use standard method directly
                     success = transfer.send_file(sock, file_name)
+                    
+                if success:
+                    logger.info(f"File {file_name} sent successfully")
+                    if use_adaptive:
+                        logger.info(f"Final buffer size used: {buffer_manager.get_buffer_size()/1024:.2f}KB")
+                        logger.info(f"Average transfer rate: {buffer_manager.get_average_transfer_rate()/1024/1024:.2f}MB/s")
+                else:
+                    logger.error(f"Failed to send file {file_name}")
+                    
             else:
-                # Use standard method directly
-                success = transfer.send_file(sock, file_name)
+                transfer.send_message(sock, f"Unknown command: {command}")
                 
-            if success:
-                logger.info(f"File {file_name} sent successfully")
-                if use_adaptive:
-                    logger.info(f"Final buffer size used: {buffer_manager.get_buffer_size()/1024:.2f}KB")
-                    logger.info(f"Average transfer rate: {buffer_manager.get_average_transfer_rate()/1024/1024:.2f}MB/s")
-            else:
-                logger.error(f"Failed to send file {file_name}")
-                
-        else:
-            transfer.send_message(sock, f"Unknown command: {command}")
-            
-    except Exception as e:
-        logger.error(f"Error in file server handler: {e}")
+        except Exception as e:
+            logger.error(f"Error in file server handler: {e}")
 
 def run_server(port: int, mode: str = "message"):
     """
@@ -267,104 +384,107 @@ def simulate_client_file_exchange(
     """
     transfer = SocketTransferSubject()
     buffer_manager = BufferManager()
+    observer = create_observer_if_enabled()
     
     logger.info(f"Simulating file client connecting to {jump_server}:{remote_port}")
     
     sock = transfer.connect_to_server(jump_server, remote_port)
     if not sock:
         return False
-    
-    try:
-        # Receive welcome message
-        welcome = transfer.receive_message(sock)
-        if welcome:
-            logger.info(f"Server: {welcome}")
-        
-        # Handle latency measurement ping
-        ping = transfer.receive_message(sock)
-        if ping == "PING":
-            transfer.send_message(sock, "PONG")
-            logger.info("Responded to server latency measurement")
-        
-        # Measure latency from client side as well
-        start_time = time.time()
-        transfer.send_message(sock, "CLIENT_PING")
-        response = transfer.receive_message(sock)
-        latency = time.time() - start_time
-        logger.info(f"Client measured latency: {latency * 1000:.2f}ms")
-        
-        # Send a file if requested
-        file_sent_path = Path(file_to_send).expanduser()
-        file_received_name = Path(file_to_get).expanduser()
-        use_adaptive = DEBUG_CONFIG.get("use_adaptive_transfer", True)
-        
-        if file_to_send:
-            if not file_sent_path.exists():
-                # Create a test file
-                with open(file_sent_path, 'w') as f:
-                    f.write(f"This is a test file from the simulated client for reverse tunnel testing.\n" * 100)
-                logger.info(f"Created test file: {file_sent_path}")
+
+    # add observer to the transfer subject and start the observer if available
+    with ObserverContext(transfer, observer):
+        try:
+            # Receive welcome message
+            welcome = transfer.receive_message(sock)
+            if welcome:
+                logger.info(f"Server: {welcome}")
             
-            # Tell server we want to send a file
-            transfer.send_message(sock, "SEND_FILE")
+            # Handle latency measurement ping
+            ping = transfer.receive_message(sock)
+            if ping == "PING":
+                transfer.send_message(sock, "PONG")
+                logger.info("Responded to server latency measurement")
             
-            # Send the file using adaptive or standard method
-            logger.info(f"Sending file {file_sent_path} using {'adaptive' if use_adaptive else 'standard'} buffering")
-            if use_adaptive:
-                success = transfer.send_file_adaptive(sock, file_sent_path, buffer_manager, latency)
-                if not success:
-                    logger.warning("Adaptive send failed, falling back to standard method")
+            # Measure latency from client side as well
+            start_time = time.time()
+            transfer.send_message(sock, "CLIENT_PING")
+            response = transfer.receive_message(sock)
+            latency = time.time() - start_time
+            logger.info(f"Client measured latency: {latency * 1000:.2f}ms")
+            
+            # Send a file if requested
+            file_sent_path = Path(file_to_send).expanduser()
+            file_received_name = Path(file_to_get).expanduser()
+            use_adaptive = DEBUG_CONFIG.get("use_adaptive_transfer", True)
+            
+            if file_to_send:
+                if not file_sent_path.exists():
+                    # Create a test file
+                    with open(file_sent_path, 'w') as f:
+                        f.write(f"This is a test file from the simulated client for reverse tunnel testing.\n" * 100)
+                    logger.info(f"Created test file: {file_sent_path}")
+                
+                # Tell server we want to send a file
+                transfer.send_message(sock, "SEND_FILE")
+                
+                # Send the file using adaptive or standard method
+                logger.info(f"Sending file {file_sent_path} using {'adaptive' if use_adaptive else 'standard'} buffering")
+                if use_adaptive:
+                    success = transfer.send_file_adaptive(sock, file_sent_path, buffer_manager, latency)
+                    if not success:
+                        logger.warning("Adaptive send failed, falling back to standard method")
+                        success = transfer.send_file(sock, file_sent_path)
+                else:
                     success = transfer.send_file(sock, file_sent_path)
-            else:
-                success = transfer.send_file(sock, file_sent_path)
+                    
+                if success:
+                    logger.info(f"File {file_sent_path} sent successfully")
+                    if use_adaptive:
+                        logger.info(f"Final buffer size used: {buffer_manager.get_buffer_size()/1024:.2f}KB")
+                        logger.info(f"Average transfer rate: {buffer_manager.get_average_transfer_rate()/1024/1024:.2f}MB/s")
+                    
+                    # Get server response
+                    response = transfer.receive_message(sock)
+                    if response:
+                        logger.info(f"Server: {response}")
+                else:
+                    logger.error(f"Failed to send file {file_sent_path}")
+                    return False
+            
+            # Get a file if requested
+            elif file_received_name:
+                # Tell server we want to get a file
+                transfer.send_message(sock, f"GET_FILE:{file_received_name}")
                 
-            if success:
-                logger.info(f"File {file_sent_path} sent successfully")
+                # Receive the file using adaptive or standard method
+                output_dir = DEBUG_CONFIG.get("received_files_dir", "received_files")
+                output_path = Path(output_dir).expanduser()
+                output_path.mkdir(parents=True, exist_ok=True)
+                
+                logger.info(f"Receiving file {file_received_name} using {'adaptive' if use_adaptive else 'standard'} buffering")
                 if use_adaptive:
-                    logger.info(f"Final buffer size used: {buffer_manager.get_buffer_size()/1024:.2f}KB")
-                    logger.info(f"Average transfer rate: {buffer_manager.get_average_transfer_rate()/1024/1024:.2f}MB/s")
-                
-                # Get server response
-                response = transfer.receive_message(sock)
-                if response:
-                    logger.info(f"Server: {response}")
-            else:
-                logger.error(f"Failed to send file {file_sent_path}")
-                return False
-        
-        # Get a file if requested
-        elif file_received_name:
-            # Tell server we want to get a file
-            transfer.send_message(sock, f"GET_FILE:{file_received_name}")
-            
-            # Receive the file using adaptive or standard method
-            output_dir = DEBUG_CONFIG.get("received_files_dir", "received_files")
-            output_path = Path(output_dir).expanduser()
-            output_path.mkdir(parents=True, exist_ok=True)
-            
-            logger.info(f"Receiving file {file_received_name} using {'adaptive' if use_adaptive else 'standard'} buffering")
-            if use_adaptive:
-                file_path = transfer.receive_file_adaptive(sock, output_path, buffer_manager, latency)
-                if not file_path:
-                    logger.warning("Adaptive receive failed, falling back to standard method")
+                    file_path = transfer.receive_file_adaptive(sock, output_path, buffer_manager, latency)
+                    if not file_path:
+                        logger.warning("Adaptive receive failed, falling back to standard method")
+                        file_path = transfer.receive_file(sock, output_path)
+                else:
                     file_path = transfer.receive_file(sock, output_path)
-            else:
-                file_path = transfer.receive_file(sock, output_path)
-                
-            if file_path:
-                logger.info(f"File received and saved as {file_path}")
-                if use_adaptive:
-                    logger.info(f"Final buffer size used: {buffer_manager.get_buffer_size()/1024:.2f}KB")
-                    logger.info(f"Average transfer rate: {buffer_manager.get_average_transfer_rate()/1024/1024:.2f}MB/s")
-            else:
-                logger.error("Failed to receive file")
-                return False
-        
-        sock.close()
-        return True
-    except Exception as e:
-        logger.error(f"Error in file exchange simulation: {e}")
-        return False
+                    
+                if file_path:
+                    logger.info(f"File received and saved as {file_path}")
+                    if use_adaptive:
+                        logger.info(f"Final buffer size used: {buffer_manager.get_buffer_size()/1024:.2f}KB")
+                        logger.info(f"Average transfer rate: {buffer_manager.get_average_transfer_rate()/1024/1024:.2f}MB/s")
+                else:
+                    logger.error("Failed to receive file")
+                    return False
+            
+            sock.close()
+            return True
+        except Exception as e:
+            logger.error(f"Error in file exchange simulation: {e}")
+            return False
 
 # 这个全局变量包含脚本的调试配置
 # 直接修改这些值来调试脚本，无需使用命令行参数
@@ -372,13 +492,13 @@ def simulate_client_file_exchange(
 # ===== DEBUG CONFIGURATION =====
 DEBUG_CONFIG = {
     # 服务器配置
-    "jump_server": "20.30.80.249",      # 跳转服务器的域名或 IP
-    "jump_user": "zfwj",     # 跳转服务器的用户名
-    "jump_port": 22,                  # 跳转服务器的 SSH 端口
-    
-    # "jump_server": "192.168.31.123",      # 跳转服务器的域名或 IP
-    # "jump_user": "root",     # 跳转服务器的用户名
+    # "jump_server": "20.30.80.249",      # 跳转服务器的域名或 IP
+    # "jump_user": "zfwj",     # 跳转服务器的用户名
     # "jump_port": 22,                  # 跳转服务器的 SSH 端口
+    
+    "jump_server": "192.168.31.123",      # 跳转服务器的域名或 IP
+    "jump_user": "root",     # 跳转服务器的用户名
+    "jump_port": 22,                  # 跳转服务器的 SSH 端口
     
     # 认证方式
     "use_password": True,            # 设置为 True 表示使用密码认证
@@ -395,11 +515,15 @@ DEBUG_CONFIG = {
     "simulate_client": True,         # 设置为 True 表示模拟客户端连接到远程端口
     
     # 文件传输选项 (当 mode="file" 时)
-    "send_file": "~/Anaconda3-2023.03-Linux-x86_64.sh",    # 模拟客户端要发送的文件路径
-    # "send_file": "~/Anaconda3-2024.10-1-Linux-x86_64.sh",    # 模拟客户端要发送的文件路径
+    # "send_file": "~/Anaconda3-2023.03-Linux-x86_64.sh",    # 模拟客户端要发送的文件路径
+    "send_file": "~/Anaconda3-2024.10-1-Linux-x86_64.sh",    # 模拟客户端要发送的文件路径
     "get_file": "",                 # 模拟客户端要获取的文件名，空字符串表示不获取
     "received_files_dir": "~/received_files",
-    "use_adaptive_transfer": True   # 设置为 True 使用自适应传输，False 使用标准传输
+    "use_adaptive_transfer": True,  # 设置为 True 使用自适应传输，False 使用标准传输
+    
+    # 进度观察者选项
+    "use_progress_observer": True,  # 设置为 True 启用进度观察者
+    "use_rich_progress": True       # 设置为 True 使用 Rich 进度条（如果可用），False 使用简单进度输出
 }
 # =============================
 
@@ -488,8 +612,27 @@ def main():
                 time.sleep(1)
         except KeyboardInterrupt:
             logger.info("Stopping tunnel...")
+        finally:
+            # 清理共享的 Rich Progress Observer
+            if (RICH_AVAILABLE and 
+                DEBUG_CONFIG.get("use_progress_observer", False) and 
+                DEBUG_CONFIG.get("use_rich_progress", True)):
+                try:
+                    from core.rich_progress_observer import shutdown_shared_rich_observer
+                    shutdown_shared_rich_observer()
+                except Exception as e:
+                    logger.error(f"Error shutting down shared observer: {e}")
     else:
         logger.error("Failed to establish tunnel")
+        # 即使隧道建立失败也要清理
+        if (RICH_AVAILABLE and 
+            DEBUG_CONFIG.get("use_progress_observer", False) and 
+            DEBUG_CONFIG.get("use_rich_progress", True)):
+            try:
+                from core.rich_progress_observer import shutdown_shared_rich_observer
+                shutdown_shared_rich_observer()
+            except Exception as e:
+                logger.error(f"Error shutting down shared observer: {e}")
     
     # Clean up
     if server_thread and server_thread.is_alive():

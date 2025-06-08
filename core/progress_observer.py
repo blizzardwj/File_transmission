@@ -8,7 +8,8 @@ Usually, Event subjects are used to notify observers
 """
 
 from abc import ABC, abstractmethod
-from typing import List
+from typing import List, Optional, Type
+from types import TracebackType
 from core.progress_events import ProgressEvent
 
 class IProgressObserver(ABC):
@@ -23,6 +24,35 @@ class IProgressObserver(ABC):
             event: 进度事件对象
         """
         pass
+
+    @abstractmethod
+    def __enter__(self) -> 'IProgressObserver':
+        """
+        Enter the runtime context related to this object.
+        The with statement will bind this method's return value to the target(s) specified in the as clause of the statement, if any.
+        """
+        pass
+
+    @abstractmethod
+    def __exit__(self,
+        exc_type: Optional[Type[BaseException]],
+        exc_value: Optional[BaseException],
+        traceback: Optional[TracebackType]
+    ) -> Optional[bool]:
+        """
+        Exit the runtime context related to this object.
+        This method is called when the execution of the with statement is finished.
+        
+        Args:
+            exc_type: The exception type raised in the with block, if any
+            exc_value: The exception value raised in the with block, if any
+            traceback: The traceback object, if any
+            
+        Returns:
+            Optional[bool]: If True, suppresses the exception; otherwise, it propagates
+        """
+        pass
+
 
 class ProgressSubject:
     """

@@ -29,6 +29,11 @@ except ImportError:
     RICH_AVAILABLE = False
     logger.warning("Rich library not available. Progress display will be disabled.")
 
+# 全局共享的 RichProgressObserver 实例和锁
+_shared_rich_observer_instance: Optional['RichProgressObserver'] = None
+_shared_console_instance: Optional['Console'] = None
+_shared_observer_lock = threading.Lock()
+
 class RichProgressObserver(IProgressObserver):
     """
     基于 Rich 库的进度条观察者
@@ -39,6 +44,7 @@ class RichProgressObserver(IProgressObserver):
     def __init__(self, 
         progress_instance: Optional['Progress'] = None, 
         console: Optional['Console'] = None,
+        manage_lifecycle: bool = True
     ):
         """
         初始化 Rich 进度条观察者
@@ -46,18 +52,21 @@ class RichProgressObserver(IProgressObserver):
         Args:
             progress_instance: 外部传入的 Rich Progress 实例，如果为 None 则自动创建
             console: Rich Console 实例，如果为 None 则使用默认控制台
+            manage_lifecycle: 是否管理 Progress 实例的生命周期（start/stop）
         """
         if not RICH_AVAILABLE:
             raise ImportError("Rich library is required for RichProgressObserver")
         
-        self._progress_instance = progress_instance
         self._console = console or Console()
         self._rich_task_map: Dict[str, TaskID] = {}  # 映射任务ID到Rich TaskID
         self._lock = threading.Lock()  # 保护任务映射的线程安全
         self._external_progress = progress_instance is not None
+        self._manage_lifecycle = manage_lifecycle  # 新增：是否管理生命周期
         
-        # 如果没有外部 Progress 实例，创建内部实例
-        if not self._external_progress:
+        if self._external_progress:
+            self._progress_instance = progress_instance
+        else:
+            # 如果没有外部 Progress 实例，创建内部实例
             self._progress_instance = Progress(
                 TextColumn(
                     "[bold blue]{task.description}", 
@@ -80,15 +89,19 @@ class RichProgressObserver(IProgressObserver):
     
     def start(self) -> None:
         """启动进度条显示（仅在内部管理 Progress 实例时有效）"""
-        if not self._external_progress and self._progress_instance:
-            self._progress_instance.start()
-            logger.debug("Rich progress started")
+        if not self._external_progress and self._manage_lifecycle and self._progress_instance:
+            if not getattr(self._progress_instance, '_started', False):
+                self._progress_instance.start()
+                logger.debug("Rich progress started by RichProgressObserver")
     
     def stop(self) -> None:
         """停止进度条显示（仅在内部管理 Progress 实例时有效）"""
-        if not self._external_progress and self._progress_instance:
-            self._progress_instance.stop()
-            logger.debug("Rich progress stopped")
+        if not self._external_progress and self._manage_lifecycle and self._progress_instance:
+            # 只有在没有活跃任务时才停止
+            with self._lock:
+                if not self._rich_task_map and getattr(self._progress_instance, '_started', False):
+                    self._progress_instance.stop()
+                    logger.debug("Rich progress stopped by RichProgressObserver")
     
     def __enter__(self):
         """上下文管理器入口"""
@@ -201,6 +214,14 @@ class SimpleFallbackObserver(IProgressObserver):
     def __init__(self):
         self._lock = threading.Lock()
     
+    def __enter__(self):
+        """上下文管理器入口"""
+        return self
+    
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        """上下文管理器出口"""
+        return False
+    
     def on_event(self, event: ProgressEvent) -> None:
         """处理进度事件（简单打印方式）"""
         with self._lock:
@@ -215,14 +236,61 @@ class SimpleFallbackObserver(IProgressObserver):
             elif isinstance(event, TaskErrorEvent):
                 print(f"[ERROR] Task {event.task_id}: {event.error_message}")
 
+def get_shared_rich_observer(console: Optional['Console'] = None) -> Optional[RichProgressObserver]:
+    """
+    返回共享的 RichProgressObserver 实例
+    第一次调用时创建并启动底层的 Progress 对象
+    
+    Args:
+        console: Rich Console 实例
+        
+    Returns:
+        共享的 RichProgressObserver 实例，如果 Rich 不可用则返回 None
+    """
+    global _shared_rich_observer_instance
+    if not RICH_AVAILABLE:
+        return None
+
+    with _shared_observer_lock:
+        if _shared_rich_observer_instance is None:
+            try:
+                # 第一个实例将管理其内部 Progress 对象的生命周期
+                _shared_rich_observer_instance = RichProgressObserver(
+                    console=console, 
+                    manage_lifecycle=True
+                )
+                # 立即启动，因为它是应用程序会话的长期实例
+                _shared_rich_observer_instance.start()
+                logger.info("Created and started shared RichProgressObserver instance.")
+            except ImportError:
+                return None  # Rich 不可用或初始化失败
+        return _shared_rich_observer_instance
+
+def shutdown_shared_rich_observer():
+    """
+    停止并清理共享的 RichProgressObserver 实例
+    应在应用程序退出时调用
+    """
+    global _shared_rich_observer_instance
+    with _shared_observer_lock:
+        if _shared_rich_observer_instance:
+            try:
+                _shared_rich_observer_instance.stop()
+                logger.info("Stopped shared RichProgressObserver instance.")
+            except Exception as e:
+                logger.error(f"Error stopping shared RichProgressObserver: {e}")
+            _shared_rich_observer_instance = None
+
 def create_progress_observer(use_rich: bool = True, 
+                           shared_mode: bool = True,
                            progress_instance: Optional['Progress'] = None,
                            console: Optional['Console'] = None) -> IProgressObserver:
     """
-    工厂函数：创建适当的进度观察者
+    工厂函数/Singleton 函数：创建适当的进度 observer or returns shared instance
     
     Args:
         use_rich: 是否尝试使用 Rich 库
+        shared_mode: 是否使用共享模式（单例）
         progress_instance: 外部 Rich Progress 实例
         console: Rich Console 实例
         
@@ -230,7 +298,29 @@ def create_progress_observer(use_rich: bool = True,
         IProgressObserver 实例
     """
     if use_rich and RICH_AVAILABLE:
-        return RichProgressObserver(progress_instance, console)
+        if shared_mode:
+            if progress_instance:
+                # 如果提供了外部 progress，不使用共享内部观察者，
+                # 创建一个包装外部 progress 的实例
+                return RichProgressObserver(
+                    progress_instance=progress_instance, 
+                    console=console, 
+                    manage_lifecycle=False
+                )
+            else:
+                # 关键改变：获取共享实例
+                observer = get_shared_rich_observer(console=console)
+                if observer:
+                    return observer
+                else:  # 如果共享观察者创建失败，回退到简单模式
+                    logger.warning("Failed to get shared Rich observer, falling back to simple.")
+                    return SimpleFallbackObserver()
+        else:  # 非共享模式，创建新的独立 RichProgressObserver
+            return RichProgressObserver(
+                progress_instance=progress_instance, 
+                console=console, 
+                manage_lifecycle=True
+            )
     else:
         logger.warning("Using fallback progress observer (simple print)")
         return SimpleFallbackObserver()
