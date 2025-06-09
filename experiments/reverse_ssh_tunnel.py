@@ -108,7 +108,7 @@ class ObserverContext:
     This ensures proper cleanup even if exceptions occur during the transfer operations.
     """
     
-    def __init__(self, subject: SocketTransferSubject, observer):
+    def __init__(self, subject: SocketTransferSubject, observer: 'RichProgressObserver'):
         """
         Initialize the observer context
         
@@ -153,7 +153,10 @@ class ObserverContext:
                 try:
                     self.observer.stop()
                     self._observer_started = False
-                    logger.debug(f"Observer {self.observer.__class__.__name__} stopped")
+                    if hasattr(self.observer, 'has_remaining_tasks') and not self.observer.has_remaining_tasks:
+                        logger.debug(f"Observer {self.observer.__class__.__name__} stopped")
+                    else:
+                        logger.debug(f"Observer {self.observer.__class__.__name__} has remaining tasks, not stopping")
                 except Exception as e:
                     logger.warning(f"Failed to stop observer {self.observer.__class__.__name__}: {e}")
         

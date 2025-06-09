@@ -10,9 +10,11 @@ import sys
 import time
 import threading
 from pathlib import Path
+import logging
 
 # 添加项目根目录到Python路径
 sys.path.insert(0, str(Path(__file__).parent.parent))
+
 
 # 导入核心模块
 try:
@@ -31,11 +33,34 @@ except ImportError as e:
 try:
     from rich.progress import Progress, TextColumn, BarColumn, TaskProgressColumn, TimeElapsedColumn
     from rich.console import Console
+    from rich.logging import RichHandler
     RICH_AVAILABLE = True
     print("✓ Rich库可用")
 except ImportError:
     RICH_AVAILABLE = False
     print("✗ Rich库不可用，将使用简单输出")
+
+# 创建共享的Console实例和配置日志
+if RICH_AVAILABLE:
+    # 创建全局共享的Rich Console实例
+    shared_console = Console()
+    
+    # 配置日志使用RichHandler
+    logging.basicConfig(
+        level=logging.INFO,
+        format="%(message)s",
+        datefmt="[%X]",
+        handlers=[RichHandler(console=shared_console, rich_tracebacks=True)]
+    )
+else:
+    # 使用标准日志配置
+    logging.basicConfig(
+        level=logging.INFO,
+        format='%(asctime)s - %(levelname)s - %(message)s',
+    )
+    shared_console = None
+
+logger = logging.getLogger(__name__)
 
 class SimpleProgressObserver():
     """简单的进度观察者实现（不依赖Rich）"""
@@ -141,39 +166,94 @@ class MockFileTransfer(ProgressSubject):
                 error_message=str(e)
             ))
 
+
 def run_core_rich_demo():
-    """核心Rich演示"""
+    """Customized Rich observer in core 演示"""
     print("\n" + "="*60)
     print("Core Rich Progress Demo")
     print("="*60)
+
+    def sender_handler():
+        """发送端处理函数"""
+        # 创建模拟传输实例
+        sender = MockFileTransfer("发送端")
     
-    # 创建模拟传输实例
-    sender = MockFileTransfer("发送端")
-    receiver = MockFileTransfer("接收端")    
-    with create_progress_observer() as rich_observer:
-        """使用Rich库的核心演示"""
-        print("创建Rich观察者...")
+        # test singleton Rich observer
+        with create_progress_observer(shared_mode=True, console=shared_console) as sender_rich_observer:
+            # 使用Rich库的核心演示
+            logger.info("创建发送端Rich观察者...")
+            
+            try:
+                # 注册观察者
+                sender.add_observer(sender_rich_observer)
+
+                sender.simulate_transfer(
+                    "test_file.dat",
+                    30*1024*1024,  # 30 MB
+                    chunk_size=128*1024,  # 128 KB
+                )
+                
+                logger.info("发送端传输任务完成")
+                
+            except Exception as e:
+                print(f"发送端处理出现错误: {e}")
+                # 记录详细错误信息
+                import traceback
+                print(f"错误详情: {traceback.format_exc()}")
+            finally:
+                # 确保观察者被正确移除
+                try:
+                    sender.remove_observer(sender_rich_observer)
+                except Exception as e:
+                    print(f"移除发送端观察者时出错: {e}")
+
+    def receiver_handler():
+        """接收端处理函数"""
+        # 创建模拟传输实例
+        receiver = MockFileTransfer("接收端")
+
+        # test singleton Rich observer
+        with create_progress_observer(shared_mode=True, console=shared_console) as receiver_rich_observer:
+            # 使用Rich库的核心演示
+            logger.info("创建接收端Rich观察者...")
+            
+            try:
+                # 注册观察者
+                receiver.add_observer(receiver_rich_observer)
+
+                receiver.simulate_transfer(
+                    "received_file.dat",
+                    20*1024*1024,  # 20 MB
+                    chunk_size=64*1024,  # 64 KB
+                )
+                
+                logger.info("接收端传输任务完成")
+                
+            except Exception as e:
+                print(f"接收端处理出现错误: {e}")
+                # 记录详细错误信息
+                import traceback
+                print(f"错误详情: {traceback.format_exc()}")
+            finally:
+                # 确保观察者被正确移除
+                try:
+                    receiver.remove_observer(receiver_rich_observer)
+                except Exception as e:
+                    print(f"移除接收端观察者时出错: {e}")
         
-        # 注册观察者
-        sender.add_observer(rich_observer)
-        receiver.add_observer(rich_observer)
-        
-        # 启动模拟传输任务
-        threads = [
-            threading.Thread(target=sender.simulate_transfer, 
-                            args=("test_file.dat", 30*1024*1024, 128*1024, 0.02), name="Sender"),
-            threading.Thread(target=receiver.simulate_transfer, 
-                            args=("received_file.dat", 20*1024*1024, 64*1024, 0.015), name="Receiver"),
-        ]
-        
-        print("启动模拟传输任务...")
-        for t in threads:
-            t.start()
-            time.sleep(0.5)
-        # 等待所有任务完成
-        for t in threads:
-            t.join()
-        
+    # create sender and receiver handlers
+    sender_thread = threading.Thread(target=sender_handler, name="SenderThread")
+    receiver_thread = threading.Thread(target=receiver_handler, name="ReceiverThread")
+    # 启动发送端和接收端线程
+    print("启动发送端和接收端线程...")
+    sender_thread.start()
+    receiver_thread.start()
+    time.sleep(1)  # 等待线程启动
+    print("发送端和接收端线程已启动，等待任务完成...")
+    # 等待线程完成
+    sender_thread.join()
+    receiver_thread.join()
+
 
 def run_rich_demo():
     """使用Rich库的演示"""

@@ -87,6 +87,12 @@ class RichProgressObserver(IProgressObserver):
         """获取 Progress 实例"""
         return self._progress_instance
     
+    @property
+    def has_remaining_tasks(self) -> bool:
+        """检查是否有剩余任务"""
+        with self._lock:
+            return len(self._rich_task_map) > 0
+    
     def start(self) -> None:
         """启动进度条显示（仅在内部管理 Progress 实例时有效）"""
         if not self._external_progress and self._manage_lifecycle and self._progress_instance:
@@ -174,7 +180,7 @@ class RichProgressObserver(IProgressObserver):
                     completed=task.total,
                     description=event.description or (task.description + " [green]✓ Done")
                 )
-                
+
                 # 从映射中移除
                 del self._rich_task_map[event.task_id]
                 logger.debug(f"Finished task with ID {event.task_id}")

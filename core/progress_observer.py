@@ -18,7 +18,7 @@ class IProgressObserver(ABC):
     @abstractmethod
     def on_event(self, event: ProgressEvent) -> None:
         """
-        处理进度事件
+        处理进度事件 handler
         
         Args:
             event: 进度事件对象
