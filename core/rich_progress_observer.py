@@ -88,26 +88,44 @@ class RichProgressObserver(IProgressObserver):
         return self._progress_instance
     
     @property
-    def has_remaining_tasks(self) -> bool:
-        """检查是否有剩余任务"""
+    def has_living_observers(self) -> bool:
+        """
+        检查是否有活跃的观察者
+        
+        Returns:
+            bool: 如果有活跃的任务，则返回 True，否则返回 False
+        """
         with self._lock:
             return len(self._rich_task_map) > 0
-    
+        
     def start(self) -> None:
         """启动进度条显示（仅在内部管理 Progress 实例时有效）"""
         if not self._external_progress and self._manage_lifecycle and self._progress_instance:
-            if not getattr(self._progress_instance, '_started', False):
-                self._progress_instance.start()
-                logger.debug("Rich progress started by RichProgressObserver")
+            # 使用 Rich Progress 的 live.is_started 属性来检查启动状态
+            if self._progress_instance.live and not self._progress_instance.live.is_started:
+                try:
+                    self._progress_instance.start()
+                    logger.debug("Rich progress started by RichProgressObserver")
+                except Exception as e:
+                    logger.error(f"Failed to start Rich progress: {e}")
+            elif not self._progress_instance.live:
+                logger.warning("Progress instance has no 'live' object to check 'is_started'.")
     
     def stop(self) -> None:
         """停止进度条显示（仅在内部管理 Progress 实例时有效）"""
         if not self._external_progress and self._manage_lifecycle and self._progress_instance:
             # 只有在没有活跃任务时才停止
             with self._lock:
-                if not self._rich_task_map and getattr(self._progress_instance, '_started', False):
-                    self._progress_instance.stop()
-                    logger.debug("Rich progress stopped by RichProgressObserver")
+                if not self._rich_task_map:
+                    # 使用 Rich Progress 的 live.is_started 属性来检查启动状态
+                    if self._progress_instance.live and self._progress_instance.live.is_started:
+                        try:
+                            self._progress_instance.stop()
+                            logger.debug("Rich progress stopped by RichProgressObserver")
+                        except Exception as e:
+                            logger.error(f"Failed to stop Rich progress: {e}")
+                    elif not self._progress_instance.live:
+                        logger.warning("Progress instance has no 'live' object to check 'is_started' for stopping.")
     
     def __enter__(self):
         """上下文管理器入口"""
@@ -288,9 +306,10 @@ def shutdown_shared_rich_observer():
             _shared_rich_observer_instance = None
 
 def create_progress_observer(use_rich: bool = True, 
-                           shared_mode: bool = True,
-                           progress_instance: Optional['Progress'] = None,
-                           console: Optional['Console'] = None) -> IProgressObserver:
+    shared_mode: bool = True,
+    progress_instance: Optional['Progress'] = None,
+    console: Optional['Console'] = None
+) -> IProgressObserver:
     """
     工厂函数/Singleton 函数：创建适当的进度 observer or returns shared instance
     

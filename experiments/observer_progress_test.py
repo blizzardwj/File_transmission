@@ -14,7 +14,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from core.socket_transfer_subject import SocketTransferSubject
-from core.ssh_utils import BufferManager
+from core.network_utils import BufferManager
 
 # 尝试导入Rich进度条管理器
 try:
@@ -45,7 +45,8 @@ def sender_thread(sender: SocketTransferSubject, sock, file_path: Path, buffer_m
     """发送端线程"""
     try:
         print(f"[SENDER] Starting to send file: {file_path}")
-        success = sender.send_file_adaptive(sock, file_path, buffer_manager, latency=0.01)
+        buffer_manager.set_latency(0.01)  # 设置模拟延迟
+        success = sender.send_file_adaptive(sock, file_path, buffer_manager)
         if success:
             print(f"[SENDER] File sent successfully: {file_path.name}")
         else:
@@ -59,7 +60,8 @@ def receiver_thread(receiver: SocketTransferSubject, sock, output_dir: Path, buf
     """接收端线程"""
     try:
         print(f"[RECEIVER] Waiting to receive file in: {output_dir}")
-        result_path = receiver.receive_file_adaptive(sock, output_dir, buffer_manager, latency=0.01)
+        buffer_manager.set_latency(0.01)  # 设置模拟延迟
+        result_path = receiver.receive_file_adaptive(sock, output_dir, buffer_manager)
         if result_path:
             print(f"[RECEIVER] File received successfully: {result_path}")
         else:

@@ -1,35 +1,105 @@
 import os
 import yaml
 import logging
-from typing import Dict, Any
+import threading
+from typing import Dict, Any, Optional, TYPE_CHECKING
 import sys
 
-"""
-统一日志格式和配置
-保持模块级别的日志命名
-防止重复添加handler
-"""
-def build_logger(name: str = "project"):
-    """Create and configure logger
+if TYPE_CHECKING:
+    from rich.console import Console
+
+# Global shared console singleton
+_shared_console = None
+_console_lock = threading.Lock()
+
+def get_shared_console() -> Optional['Console']:
+    """获取共享的 Rich Console 实例/singleton
+    
+    Returns:
+        Rich Console 实例，如果 Rich 不可用则返回 None
+    """
+    global _shared_console
+    if _shared_console is None:
+        with _console_lock:    # make sure singleton
+            if _shared_console is None:  # 双重检查锁定
+                try:
+                    from rich.console import Console
+                    _shared_console = Console()
+                except ImportError:
+                    _shared_console = None
+    return _shared_console
+
+def build_logger(name: str = "project", level=logging.INFO, force_rich: Optional[bool] = None):
+    """创建带有自动 Rich 支持的统一 logger
+    
+    这个函数会自动检测并使用共享的 Rich Console 实例，确保所有日志输出
+    都使用相同的 console，从而与进度条和其他 Rich 元素完美协调。
 
     Args:
         name: Logger name, defaults to "project". If None, uses module name
+        level: Logging level, defaults to INFO
+        force_rich: 强制启用/禁用 Rich。None = 自动检测
+        
+    Returns:
+        配置好的 logger 实例
     """
     logger = logging.getLogger(name if name else __name__)
-
-    # Only add handler if it doesn't exist
-    if not logger.handlers:
-        handler = logging.StreamHandler()
-        formatter = logging.Formatter(
-            '%(asctime)s - %(name)s - %(levelname)s - %(message)s',
-            datefmt='%Y-%m-%d %H:%M:%S'
-        )
-        handler.setFormatter(formatter)
-        logger.addHandler(handler)
-        logger.setLevel(logging.INFO)
-        logger.propagate = False
+    
+    # 如果已经有 handler，不要重复添加
+    if logger.handlers:
+        return logger
+    
+    # 决定是否使用 Rich
+    use_rich = force_rich
+    if use_rich is None:
+        # 检查环境变量控制
+        use_rich = os.environ.get('USE_RICH_LOGGING', 'true').lower() == 'true'
+    
+    if use_rich:
+        shared_console = get_shared_console()
+        
+        if shared_console:
+            # 使用共享的 Rich Console
+            try:
+                from rich.logging import RichHandler
+                # RichHandler deals with data formatting
+                handler = RichHandler(
+                    console=shared_console,
+                    rich_tracebacks=True,
+                    # show_path=False,
+                    show_time=True
+                )
+                # Rich 自己处理格式，只需要消息内容
+                handler.setFormatter(logging.Formatter("%(message)s"))
+                
+                logger.addHandler(handler)
+                logger.setLevel(level)
+                logger.propagate = False
+                
+                return logger
+                
+            except ImportError:
+                # Rich 导入失败，降级到标准日志
+                pass
+    
+    # 使用标准日志配置（Rich 不可用或被禁用）
+    handler = logging.StreamHandler()
+    formatter = logging.Formatter(
+        '%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+        datefmt='[%X]'
+    )
+    handler.setFormatter(formatter)
+    logger.addHandler(handler)
+    logger.setLevel(level)
+    logger.propagate = False
 
     return logger
+
+def reset_shared_console():
+    """重置共享 console（主要用于测试）"""
+    global _shared_console
+    with _console_lock:
+        _shared_console = None
 
 logger = build_logger(__name__)
 

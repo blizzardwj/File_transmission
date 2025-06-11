@@ -74,29 +74,34 @@ import socket
 import logging
 import argparse
 import threading
+from typing import Optional
+
+from core.utils import build_logger
 
 # Add parent directory to path to import ssh_utils
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-from core.ssh_utils import SSHConfig, SSHTunnelReverse, BufferManager
+from core.ssh_utils import SSHConfig, SSHTunnelReverse
+from core.network_utils import BufferManager
 from core.socket_transfer_subject import SocketTransferSubject
-
-# Configure logging
-logging.basicConfig(
-    level=logging.INFO,
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
-)
-logger = logging.getLogger('reverse_tunnel_experiment')
 
 # Import observer-related modules
 try:
-    from core.rich_progress_observer import create_progress_observer, RichProgressObserver
-    from rich.progress import Progress
-    from rich.console import Console
+    from core.rich_progress_observer import create_progress_observer
+    from core.progress_observer import IProgressObserver
+    from core.utils import get_shared_console
     RICH_AVAILABLE = True
+    print("✓ Rich is available, using RichProgressObserver for progress tracking")
+    # Get the shared console that build_logger automatically creates
+    shared_console = get_shared_console()
 except ImportError as e:
-    logger.warning(f"Rich not available ({e}), using fallback observer")
+    print(f"✗ Rich not available ({e}), using fallback observer")
     from core.rich_progress_observer import create_progress_observer
     RICH_AVAILABLE = False
+    shared_console = None
+
+# No need to configure logging manually anymore - build_logger handles it automatically
+
+logger = build_logger(__name__)
 
 
 class ObserverContext:
@@ -108,13 +113,16 @@ class ObserverContext:
     This ensures proper cleanup even if exceptions occur during the transfer operations.
     """
     
-    def __init__(self, subject: SocketTransferSubject, observer: 'RichProgressObserver'):
+    def __init__(self, 
+        subject: SocketTransferSubject, 
+        observer: Optional['IProgressObserver'] = None
+    ):
         """
         Initialize the observer context
         
         Args:
             subject: SocketTransferSubject instance to manage
-            observer: Observer instance implementing IProgressObserver interface
+            observer: Observer instance implementing IProgressObserver interface or None
         """
         self.subject = subject
         self.observer = observer
@@ -153,7 +161,7 @@ class ObserverContext:
                 try:
                     self.observer.stop()
                     self._observer_started = False
-                    if hasattr(self.observer, 'has_remaining_tasks') and not self.observer.has_remaining_tasks:
+                    if hasattr(self.observer, 'has_living_observers') and not self.observer.has_living_observers:
                         logger.debug(f"Observer {self.observer.__class__.__name__} stopped")
                     else:
                         logger.debug(f"Observer {self.observer.__class__.__name__} has remaining tasks, not stopping")
@@ -221,7 +229,7 @@ def file_server_handler(sock: socket.socket) -> None:
     """
     transfer = SocketTransferSubject()
     buffer_manager = BufferManager()
-    observer = create_observer_if_enabled()
+    observer = create_observer_if_enabled(console=shared_console)
     
     # Add observer to the transfer subject and start the observer if available
     with ObserverContext(transfer, observer):
@@ -259,7 +267,8 @@ def file_server_handler(sock: socket.socket) -> None:
                 
                 if use_adaptive:
                     # Try adaptive receive first, fallback to standard method
-                    file_path = transfer.receive_file_adaptive(sock, output_d, buffer_manager, latency)
+                    buffer_manager.set_latency(latency)
+                    file_path = transfer.receive_file_adaptive(sock, output_d, buffer_manager)
                     if not file_path:
                         logger.warning("Adaptive receive failed, falling back to standard method")
                         file_path = transfer.receive_file(sock, output_d)
@@ -288,7 +297,8 @@ def file_server_handler(sock: socket.socket) -> None:
                 
                 if use_adaptive:
                     # Try adaptive send first, fallback to standard method
-                    success = transfer.send_file_adaptive(sock, file_name, buffer_manager, latency)
+                    buffer_manager.set_latency(latency)
+                    success = transfer.send_file_adaptive(sock, file_name, buffer_manager)
                     if not success:
                         logger.warning("Adaptive send failed, falling back to standard method")
                         success = transfer.send_file(sock, file_name)
@@ -387,7 +397,7 @@ def simulate_client_file_exchange(
     """
     transfer = SocketTransferSubject()
     buffer_manager = BufferManager()
-    observer = create_observer_if_enabled()
+    observer = create_observer_if_enabled(console=shared_console)
     
     logger.info(f"Simulating file client connecting to {jump_server}:{remote_port}")
     
@@ -434,7 +444,8 @@ def simulate_client_file_exchange(
                 # Send the file using adaptive or standard method
                 logger.info(f"Sending file {file_sent_path} using {'adaptive' if use_adaptive else 'standard'} buffering")
                 if use_adaptive:
-                    success = transfer.send_file_adaptive(sock, file_sent_path, buffer_manager, latency)
+                    buffer_manager.set_latency(latency)
+                    success = transfer.send_file_adaptive(sock, file_sent_path, buffer_manager)
                     if not success:
                         logger.warning("Adaptive send failed, falling back to standard method")
                         success = transfer.send_file(sock, file_sent_path)
@@ -467,7 +478,8 @@ def simulate_client_file_exchange(
                 
                 logger.info(f"Receiving file {file_received_name} using {'adaptive' if use_adaptive else 'standard'} buffering")
                 if use_adaptive:
-                    file_path = transfer.receive_file_adaptive(sock, output_path, buffer_manager, latency)
+                    buffer_manager.set_latency(latency)
+                    file_path = transfer.receive_file_adaptive(sock, output_path, buffer_manager)
                     if not file_path:
                         logger.warning("Adaptive receive failed, falling back to standard method")
                         file_path = transfer.receive_file(sock, output_path)
@@ -495,13 +507,13 @@ def simulate_client_file_exchange(
 # ===== DEBUG CONFIGURATION =====
 DEBUG_CONFIG = {
     # 服务器配置
-    # "jump_server": "20.30.80.249",      # 跳转服务器的域名或 IP
-    # "jump_user": "zfwj",     # 跳转服务器的用户名
-    # "jump_port": 22,                  # 跳转服务器的 SSH 端口
-    
-    "jump_server": "192.168.31.123",      # 跳转服务器的域名或 IP
-    "jump_user": "root",     # 跳转服务器的用户名
+    "jump_server": "20.30.80.249",      # 跳转服务器的域名或 IP
+    "jump_user": "zfwj",     # 跳转服务器的用户名
     "jump_port": 22,                  # 跳转服务器的 SSH 端口
+    
+    # "jump_server": "192.168.31.123",      # 跳转服务器的域名或 IP
+    # "jump_user": "root",     # 跳转服务器的用户名
+    # "jump_port": 22,                  # 跳转服务器的 SSH 端口
     
     # 认证方式
     "use_password": True,            # 设置为 True 表示使用密码认证
@@ -518,8 +530,8 @@ DEBUG_CONFIG = {
     "simulate_client": True,         # 设置为 True 表示模拟客户端连接到远程端口
     
     # 文件传输选项 (当 mode="file" 时)
-    # "send_file": "~/Anaconda3-2023.03-Linux-x86_64.sh",    # 模拟客户端要发送的文件路径
-    "send_file": "~/Anaconda3-2024.10-1-Linux-x86_64.sh",    # 模拟客户端要发送的文件路径
+    "send_file": "~/Anaconda3-2023.03-Linux-x86_64.sh",    # 模拟客户端要发送的文件路径
+    # "send_file": "~/Anaconda3-2024.10-1-Linux-x86_64.sh",    # 模拟客户端要发送的文件路径
     "get_file": "",                 # 模拟客户端要获取的文件名，空字符串表示不获取
     "received_files_dir": "~/received_files",
     "use_adaptive_transfer": True,  # 设置为 True 使用自适应传输，False 使用标准传输
@@ -567,7 +579,6 @@ def main():
     # 如果请求运行服务器，在单独的线程中启动它
     server_thread = None
     if start_server:
-        logger.info(f"Starting {mode} server on local port {local_port}")
         server_thread = threading.Thread(
             target=run_server,
             args=(local_port, mode),

@@ -12,7 +12,7 @@ from pathlib import Path
 from typing import Union, Optional, Tuple
 from core.optimized_socket_transport import OptimizedSocketTransport
 from core.optimized_protocol_handler import OptimizedProtocolHandler, ReadableStream
-from core.ssh_utils import BufferManager
+from core.network_utils import BufferManager
 from core.utils import build_logger
 
 logger = build_logger(__name__)
@@ -256,7 +256,6 @@ class ManagedFileTransfer:
     
     def send_file_adaptive(self, file_path: Union[str, Path], 
                          buffer_manager: Optional[BufferManager] = None,
-                         latency: float = 0.1,
                          remote_filename: Optional[str] = None) -> bool:
         """
         Send a file with adaptive buffer management using chunked transfer.
@@ -264,7 +263,6 @@ class ManagedFileTransfer:
         Args:
             file_path: Path to the file to send
             buffer_manager: BufferManager instance for adaptive adjustment
-            latency: Network latency in seconds
             remote_filename: Optional filename to use on remote side
             
         Returns:
@@ -332,7 +330,7 @@ class ManagedFileTransfer:
                     # Adaptive buffer adjustment every 10 chunks
                     if chunk_count % 10 == 0 and chunk_time > 0:
                         new_buffer_size = buffer_manager.adaptive_adjust(
-                            len(chunk), chunk_time, latency
+                            len(chunk), chunk_time
                         )
                         # Update transport buffer size
                         self.transport.buffer_size = new_buffer_size
@@ -379,15 +377,13 @@ class ManagedFileTransfer:
             return False
     
     def receive_file_adaptive(self, output_dir: Union[str, Path] = '.', 
-                            buffer_manager: Optional[BufferManager] = None,
-                            latency: float = 0.1) -> Optional[Path]:
+                            buffer_manager: Optional[BufferManager] = None) -> Optional[Path]:
         """
         Receive a file with adaptive buffer management using chunked transfer.
         
         Args:
             output_dir: Directory to save the received file
             buffer_manager: BufferManager instance for adaptive adjustment
-            latency: Network latency in seconds
             
         Returns:
             Path to the saved file or None if error
@@ -465,7 +461,7 @@ class ManagedFileTransfer:
                         # Adaptive buffer adjustment every 10 chunks
                         if chunk_count % 10 == 0 and chunk_time > 0:
                             new_buffer_size = buffer_manager.adaptive_adjust(
-                                len(payload_bytes), chunk_time, latency
+                                len(payload_bytes), chunk_time
                             )
                             # Update transport buffer size
                             self.transport.buffer_size = new_buffer_size

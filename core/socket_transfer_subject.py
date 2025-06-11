@@ -17,7 +17,7 @@ import socket
 import threading
 import time
 from typing import Callable, Optional, Tuple, Union
-from core.ssh_utils import BufferManager
+from core.network_utils import BufferManager
 from core.utils import build_logger
 from core.progress_observer import ProgressSubject
 from core.progress_events import (
@@ -53,7 +53,11 @@ class SocketTransferSubject(ProgressSubject):
         self.buffer_size = buffer_size if buffer_size is not None else self.DEFAULT_BUFFER_SIZE
         logger.debug(f"SocketTransferSubject initialized with buffer_size={self.buffer_size}")
     
-    def _send_data(self, sock: socket.socket, data_type: str, data: Union[str, bytes]) -> bool:
+    def _send_data(self, 
+        sock: socket.socket, 
+        data_type: str, 
+        data: Union[str, bytes]
+    ) -> bool:
         """
         Send data with protocol header
         
@@ -469,7 +473,7 @@ class SocketTransferSubject(ProgressSubject):
             logger.error(f"Failed to connect to {host}:{port}: {e}")
             return None
         
-    def send_file_adaptive(self, sock: socket.socket, file_path: Union[str, Path], buffer_manager: Optional[BufferManager]=None, latency: float = 0.1) -> bool:
+    def send_file_adaptive(self, sock: socket.socket, file_path: Union[str, Path], buffer_manager: Optional[BufferManager]=None) -> bool:
         """
         Send a file with adaptive buffer size adjustment
         
@@ -477,7 +481,6 @@ class SocketTransferSubject(ProgressSubject):
             sock: Socket to send through
             file_path: Path to the file to send
             buffer_manager: BufferManager instance for adaptive adjustment
-            latency: Network latency in seconds
             
         Returns:
             True if successful, False otherwise
@@ -552,7 +555,7 @@ class SocketTransferSubject(ProgressSubject):
                     # Adaptive buffer adjustment every 10 chunks
                     if buffer_manager and chunk_count % 10 == 0 and chunk_time > 0:
                         new_buffer_size = buffer_manager.adaptive_adjust(
-                            len(chunk), chunk_time, latency
+                            len(chunk), chunk_time
                         )
                         # Update socket buffer if significantly changed
                         if abs(new_buffer_size - current_buffer_size) > (current_buffer_size * 0.1):
@@ -583,7 +586,7 @@ class SocketTransferSubject(ProgressSubject):
             self.notify_observers(TaskErrorEvent(task_id, f"Send error: {str(e)}"))
             return False
     
-    def receive_file_adaptive(self, sock: socket.socket, output_dir: Union[str, Path] = '.', buffer_manager=None, latency: float = 0.1) -> Optional[str]:
+    def receive_file_adaptive(self, sock: socket.socket, output_dir: Union[str, Path] = '.', buffer_manager=None) -> Optional[str]:
         """
         Receive a file with adaptive buffer size adjustment
         
@@ -591,7 +594,6 @@ class SocketTransferSubject(ProgressSubject):
             sock: Socket to receive from
             output_dir: Directory to save the received file
             buffer_manager: BufferManager instance for adaptive adjustment
-            latency: Network latency in seconds
             
         Returns:
             Path to the saved file or None if error
@@ -662,7 +664,7 @@ class SocketTransferSubject(ProgressSubject):
                     # Adaptive buffer adjustment every 10 chunks
                     if buffer_manager and chunk_count % 10 == 0 and chunk_time > 0:
                         new_buffer_size = buffer_manager.adaptive_adjust(
-                            len(data), chunk_time, latency
+                            len(data), chunk_time
                         )
                         # Update our internal buffer size
                         self.buffer_size = new_buffer_size

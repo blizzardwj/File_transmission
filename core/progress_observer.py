@@ -53,6 +53,32 @@ class IProgressObserver(ABC):
         """
         pass
 
+    @abstractmethod
+    def start(self) -> None:
+        """
+        Start the progress bar instance.
+        The progress bar could initialize its internal state or objects and so on.
+        """
+        pass
+
+    @abstractmethod
+    def stop(self) -> None:
+        """
+        Stop the progress bar instance.
+        The progress bar could finalize its internal state or objects and so on.
+        """
+        pass
+
+    @property
+    @abstractmethod
+    def has_living_observers(self) -> bool:
+        """
+        Check if there are any living observers.
+        
+        Returns:
+            bool: True if there are living observers, False otherwise
+        """
+        pass
 
 class ProgressSubject:
     """

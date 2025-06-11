@@ -196,16 +196,16 @@ def run_core_rich_demo():
                 logger.info("发送端传输任务完成")
                 
             except Exception as e:
-                print(f"发送端处理出现错误: {e}")
+                logger.error(f"发送端处理出现错误: {e}")
                 # 记录详细错误信息
                 import traceback
-                print(f"错误详情: {traceback.format_exc()}")
+                logger.error(f"错误详情: {traceback.format_exc()}")
             finally:
                 # 确保观察者被正确移除
                 try:
                     sender.remove_observer(sender_rich_observer)
                 except Exception as e:
-                    print(f"移除发送端观察者时出错: {e}")
+                    logger.error(f"移除发送端观察者时出错: {e}")
 
     def receiver_handler():
         """接收端处理函数"""
@@ -230,26 +230,26 @@ def run_core_rich_demo():
                 logger.info("接收端传输任务完成")
                 
             except Exception as e:
-                print(f"接收端处理出现错误: {e}")
+                logger.error(f"接收端处理出现错误: {e}")
                 # 记录详细错误信息
                 import traceback
-                print(f"错误详情: {traceback.format_exc()}")
+                logger.error(f"错误详情: {traceback.format_exc()}")
             finally:
                 # 确保观察者被正确移除
                 try:
                     receiver.remove_observer(receiver_rich_observer)
                 except Exception as e:
-                    print(f"移除接收端观察者时出错: {e}")
-        
+                    logger.error(f"移除接收端观察者时出错: {e}")
+
     # create sender and receiver handlers
     sender_thread = threading.Thread(target=sender_handler, name="SenderThread")
     receiver_thread = threading.Thread(target=receiver_handler, name="ReceiverThread")
     # 启动发送端和接收端线程
-    print("启动发送端和接收端线程...")
+    logger.info("启动发送端和接收端线程...")
     sender_thread.start()
     receiver_thread.start()
     time.sleep(1)  # 等待线程启动
-    print("发送端和接收端线程已启动，等待任务完成...")
+    logger.info("发送端和接收端线程已启动，等待任务完成...")
     # 等待线程完成
     sender_thread.join()
     receiver_thread.join()
