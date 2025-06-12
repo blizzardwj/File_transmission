@@ -41,6 +41,9 @@ class SocketTransferSubject(ProgressSubject):
     DEFAULT_BUFFER_SIZE = 64 * 1024
     HEADER_DELIMITER = "|"
     
+    # Adaptive buffer adjustment constants
+    BUFFER_ADJUSTMENT_INTERVAL = 10  # Adjust buffer every N chunks
+    
     def __init__(self, buffer_size: Optional[int] = None):
         """Initialize the tunnel transfer handler
         
@@ -395,9 +398,12 @@ class SocketTransferSubject(ProgressSubject):
             True if server started successfully, False otherwise
         """
         try:
+            # 1. Create server socket
             self.server_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
             self.server_socket.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+            # 2. Bind to the specified port
             self.server_socket.bind(('0.0.0.0', port))
+            # 3. Listen for connections
             self.server_socket.listen(5)
             
             self.running = True
@@ -405,6 +411,7 @@ class SocketTransferSubject(ProgressSubject):
             
             while self.running:
                 try:
+                    # 4. Accept incoming connections
                     client_sock, addr = self.server_socket.accept()
                     logger.info(f"Client connected from {addr}")
                     
@@ -552,8 +559,8 @@ class SocketTransferSubject(ProgressSubject):
                     # Notify observers of progress
                     self.notify_observers(ProgressAdvancedEvent(task_id, advance=len(chunk)))
                     
-                    # Adaptive buffer adjustment every 10 chunks
-                    if buffer_manager and chunk_count % 10 == 0 and chunk_time > 0:
+                    # Adaptive buffer adjustment every N chunks
+                    if buffer_manager and chunk_count % self.BUFFER_ADJUSTMENT_INTERVAL == 0 and chunk_time > 0:
                         new_buffer_size = buffer_manager.adaptive_adjust(
                             len(chunk), chunk_time
                         )
@@ -661,8 +668,8 @@ class SocketTransferSubject(ProgressSubject):
                     # Notify observers of progress
                     self.notify_observers(ProgressAdvancedEvent(task_id, advance=len(data)))
                     
-                    # Adaptive buffer adjustment every 10 chunks
-                    if buffer_manager and chunk_count % 10 == 0 and chunk_time > 0:
+                    # Adaptive buffer adjustment every N chunks
+                    if buffer_manager and chunk_count % self.BUFFER_ADJUSTMENT_INTERVAL == 0 and chunk_time > 0:
                         new_buffer_size = buffer_manager.adaptive_adjust(
                             len(data), chunk_time
                         )
