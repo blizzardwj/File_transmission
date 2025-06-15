@@ -21,7 +21,7 @@ class BufferManager:
     """Manages the buffer size for optimal transfer speed with adaptive adjustment"""
     
     # Default buffer sizes in bytes
-    DEFAULT_BUFFER_SIZE = 64 * 1024  # 64KB
+    DEFAULT_BUFFER_SIZE = 64 * 1024 * 8  # 64KB
     MINIMUM_BUFFER_SIZE = 8 * 1024  # 8KB minimum buffer size
     MAXIMUM_BUFFER_SIZE = 1 * 1024 * 1024  # 1MB maximum buffer size
 
@@ -134,6 +134,27 @@ class BufferManager:
 
         self.buffer_size = max(min_size, min(optimal_size, max_size))
         logger.info(f"Buffer size adjusted to: {self.buffer_size / 1024:.2f}KB")
+        return self.buffer_size
+
+    @accumulate_transfer_stats
+    def no_adjust_debug(self, bytes_transferred: int, transfer_time: float) -> int:
+        """
+        No adjustment, just log the transfer stats for debugging
+        
+        Args:
+            bytes_transferred: Number of bytes transferred
+            transfer_time: Time taken for transfer in seconds
+            
+        Returns:
+            Current buffer size in bytes
+        """
+        if transfer_time <= 0:
+            return self.buffer_size
+            
+        actual_rate = bytes_transferred / transfer_time
+        logger.info(f"Transfer: {bytes_transferred} bytes in {transfer_time:.2f}s "
+                    f"({actual_rate/1024/1024:.2f} MB/s), buffer: {self.buffer_size/1024:.2f}KB")
+        
         return self.buffer_size
     
     @accumulate_transfer_stats

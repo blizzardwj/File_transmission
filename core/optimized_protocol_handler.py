@@ -40,7 +40,7 @@ class OptimizedProtocolHandler:
         header_bytes = header_content.encode('utf-8')
         
         # 8字节固定长度的头部长度字段
-        header_len_bytes = f"{len(header_bytes):08d}".encode('utf-8')
+        header_len_bytes = f"{len(header_bytes):0{cls.HEADER_SIZE}d}".encode('utf-8')
         
         return header_len_bytes + header_bytes + payload_bytes
 

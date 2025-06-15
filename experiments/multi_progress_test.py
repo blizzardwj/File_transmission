@@ -47,10 +47,9 @@ Answer： 虽然从逻辑上合理，但是实现复杂度较高。
 
 
 
+Result:
+Give up on tqdm, use rich instead.
 
-依赖:
-- tqdm
-- rich
 """
 
 import os
