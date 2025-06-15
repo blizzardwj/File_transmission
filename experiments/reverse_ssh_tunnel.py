@@ -526,7 +526,7 @@ DEBUG_CONFIG = {
     
     # 运行模式选项
     "mode": "file",                  # 可选值: "message" 或 "file"
-    "start_server": True,            # 设置为 True 表示在本地端口上运行服务器
+    "start_local_server": True,            # 设置为 True 表示在本地端口上运行receiver service
     "simulate_client": True,         # 设置为 True 表示模拟客户端连接到远程端口
     
     # 文件传输选项 (当 mode="file" 时)
@@ -553,7 +553,7 @@ def main():
     remote_port = DEBUG_CONFIG["remote_port"]
     local_port = DEBUG_CONFIG["local_port"]
     mode = DEBUG_CONFIG["mode"]
-    start_server = DEBUG_CONFIG["start_server"]
+    start_local_server = DEBUG_CONFIG["start_local_server"]
     simulate_client = DEBUG_CONFIG["simulate_client"]
     send_file = DEBUG_CONFIG["send_file"]
     get_file = DEBUG_CONFIG["get_file"]
@@ -578,7 +578,7 @@ def main():
 
     # 如果请求运行服务器，在单独的线程中启动它
     server_thread = None
-    if start_server:
+    if start_local_server:
         server_thread = threading.Thread(
             target=run_server,
             args=(local_port, mode),
