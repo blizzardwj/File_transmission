@@ -2,20 +2,23 @@
 
 # SSH Jump Server Configuration
 ssh:
-  jump_server: "192.168.31.123"       # Jump server hostname or IP address
-  jump_user: "root"                    # Username for SSH connection
-  jump_port: 22                            # SSH port (default: 22)
+  # jump_server: "192.168.31.123"       # Jump server hostname or IP address
+  # jump_user: "root"                    # Username for SSH connection
+  # jump_port: 22                            # SSH port (default: 22)
   # jump_server: "20.30.80.249"       # Jump server hostname or IP address
   # jump_user: "zfwj"                    # Username for SSH connection
   # jump_port: 22                            # SSH port (default: 22)
+  jump_server: "45.145.74.109"       # Jump server hostname or IP address
+  jump_user: "root"                    # Username for SSH connection
+  jump_port: 5222                            # SSH port (default: 22)
   identity_file: null                    # Optional: Path to SSH private key
   use_password: true                      # Set to true to use password auth instead of key
   password: null                         # SSH password (if use_password=true)
   
 # Transfer Configuration
 transfer:
-  remote_port: 8022                        # Port exposed on jump server
-  local_port: 9022                         # Local port to forward to
+  remote_port: 8011                        # Port exposed on jump server
+  local_port: 9011                         # Local port to forward to
 
 # Transfer Modes
 # Use one of the following sections depending on your operation mode
@@ -33,7 +36,7 @@ receiver:
 
 # Performance Tuning
 performance:
-  buffer_size: 4096                        # Default buffer size in bytes
+  buffer_size: 65536                        # Default buffer size in bytes
   auto_adjust: true                        # Automatically adjust buffer based on network conditions
   use_adaptive_transfer: true              # Use adaptive transfer optimization
 

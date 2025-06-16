@@ -13,7 +13,7 @@ import argparse
 import logging
 from typing import Dict, Any
 
-from core.file_transfer_app import FileSender, FileReceiver
+from core.file_transfer import FileSender, FileReceiver
 from core.ssh_utils import SSHConfig
 from core.utils import ConfigLoader, build_logger
 
