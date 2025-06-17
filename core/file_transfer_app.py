@@ -11,7 +11,7 @@ This application establishes a reverse SSH tunnel between two devices and enable
 
 Usage:
     python file_transfer_app.py --config config_receiver.yml  # Run this first on receiver machine
-    python file_transfer_app.py --config config_sender.yml    # Run this second on sender machine
+    python file_transfer_app.py --config config_sender.yml    # Run this next on sender machine
 
 Configuration is loaded from YAML files that specify:
 - SSH connection details (jump server, credentials, ports)
@@ -392,14 +392,18 @@ class FileTransferApp:
             logger.error(f"Error in message exchange: {e}")
             return False
             
-    def _client_file_exchange(self, jump_server: str, remote_port: int, 
-                            file_to_send: str = "", file_to_get: str = "") -> bool:
+    def _client_file_exchange(self, 
+        socket_server: str, 
+        socket_port: int, 
+        file_to_send: str = "", 
+        file_to_get: str = ""
+    ) -> bool:
         """
         Execute file client operations connecting to the jump server's remote port
         
         Args:
-            jump_server: Jump server hostname or IP
-            remote_port: Remote port on jump server
+            socket_server: socket server hostname or IP
+            socket_port: socket port on jump server
             file_to_send: Path to a file to send to the server (optional)
             file_to_get: Name of a file to get from the server (optional)
         """
@@ -407,9 +411,9 @@ class FileTransferApp:
         buffer_manager = BufferManager()
         observer = self._create_observer_if_enabled(console=shared_console)
         
-        logger.info(f"File client connecting to {jump_server}:{remote_port}")
+        logger.info(f"File client connecting to {socket_server}:{socket_port}")
         
-        sock = transfer.connect_to_server(jump_server, remote_port)
+        sock = transfer.connect_to_server(socket_server, socket_port)
         if not sock:
             return False
 
@@ -587,16 +591,6 @@ class FileTransferApp:
         remote_port = transfer_config['remote_port']
         mode = self.config.get('mode', 'file')
         
-        # Start the server in a separate thread if requested
-        if self.config.get('start_local_server', False):
-            self.server_thread = threading.Thread(
-                target=self._run_server,
-                args=(local_port, mode),
-                daemon=True
-            )
-            self.server_thread.start()
-            time.sleep(1)
-        
         # Establish reverse tunnel
         logger.info(f"Establishing reverse tunnel:")
         logger.info(f"Local Machine: localhost:{local_port}")
@@ -613,7 +607,7 @@ class FileTransferApp:
             logger.info("Forward tunnel established successfully")
 
             # Execute client operations if requested
-            if self.config.get('simulate_client', True):
+            if self.config.get('start_client', True):
                 time.sleep(2)  # Give tunnel time to stabilize
                 logger.info("Executing sender operations through the tunnel...")
                 
@@ -621,8 +615,11 @@ class FileTransferApp:
                     sender_config = self.config.get('sender', {})
                     send_file = sender_config.get('file', '')
                     
-                    if self._client_file_exchange(self.ssh_config.jump_server, remote_port, 
-                                               file_to_send=send_file):
+                    if self._client_file_exchange(
+                        socket_server="localhost",
+                        socket_port=local_port,
+                        file_to_send=send_file
+                    ):
                         logger.info("File transfer successful")
                     else:
                         logger.error("File transfer failed")

@@ -42,8 +42,8 @@ performance:
 
 # Operation Mode
 mode: "file"                               # Transfer mode: "message" or "file"
-start_server: true                         # Start local server
-simulate_client: true                      # Simulate client connection
+start_local_server: true                         # Start local server
+start_client: true                          # start client connection
 
 # Progress Observer Options
 progress:

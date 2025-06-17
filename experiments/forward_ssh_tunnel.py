@@ -11,10 +11,13 @@ This script demonstrates establishing a forward SSH tunnel between two devices:
 
 **BEFORE RUNNING THIS SCRIPT:**
 1. Start a service on the jump server: 
-   - For text/data testing: `nc -l 8080` 
+   - For text/data testing: `nc -l -p 8080` 
    - For HTTP testing: `python3 -m http.server 8080`
-   - For file transfer testing: `nc -l 8080 > received_file.dat`
+   - For file transfer testing: `nc -l -p 8080 > received_file.dat`
 2. Ensure the service is listening on the port you specify as --remote-port
+
+CAUTION:
+- Check nc version. Some versions need `-l -p` for listening, others just `-l`.
 
 FORWARD TUNNEL MECHANISM:
 In a forward tunnel, a local port on your machine is forwarded to a port on the jump server.
@@ -323,14 +326,18 @@ def run_interactive_test(local_port: int, test_type: str):
 # ===== DEBUG CONFIGURATION =====
 DEBUG_CONFIG = {
     # 服务器配置
-    "jump_server": "20.30.80.249",      # 跳转服务器的域名或 IP
-    "jump_user": "zfwj",                 # 跳转服务器的用户名
-    "jump_port": 22,                     # 跳转服务器的 SSH 端口
+    # "jump_server": "20.30.80.249",      # 跳转服务器的域名或 IP
+    # "jump_user": "zfwj",                 # 跳转服务器的用户名
+    # "jump_port": 22,                     # 跳转服务器的 SSH 端口
     
     # "jump_server": "192.168.31.123",   # 跳转服务器的域名或 IP (备用)
     # "jump_user": "root",               # 跳转服务器的用户名 (备用)
     # "jump_port": 22,                   # 跳转服务器的 SSH 端口 (备用)
     
+    "jump_server": "45.145.74.109",   # 跳转服务器的域名或 IP (备用)
+    "jump_user": "root",               # 跳转服务器的用户名 (备用)
+    "jump_port": 5222,                   # 跳转服务器的 SSH 端口 (备用)
+
     # 认证方式
     "use_password": True,                # 设置为 True 表示使用密码认证
     "identity_file": None,               # SSH 私钥路径 (例如 "~/.ssh/id_rsa")

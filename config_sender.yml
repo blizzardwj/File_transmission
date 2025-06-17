@@ -43,7 +43,7 @@ performance:
 # Operation Mode
 mode: "file"                               # Transfer mode: "message" or "file"
 start_local_server: true                         # Start local receiver or message service
-simulate_client: true                      # Simulate client connection
+start_client: true                      # start client connection
 
 # Progress Observer Options
 progress:
