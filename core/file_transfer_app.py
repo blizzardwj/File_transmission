@@ -13,6 +13,7 @@ Usage:
     python file_transfer_app.py --config config_receiver.yml  # Run this first on receiver machine
     python file_transfer_app.py --config config_sender.yml    # Run this next on sender machine
 
+
 Configuration is loaded from YAML files that specify:
 - SSH connection details (jump server, credentials, ports)
 - Operation mode (sender/receiver)

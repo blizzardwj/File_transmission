@@ -26,8 +26,8 @@ transfer:
 # Sender Configuration
 sender:
   enabled: true                            # Set to true to enable sender mode
-  # file: "~/Anaconda3-2024.10-1-Linux-x86_64.sh"            # Path to the file to send
-  file: "~/Anaconda3-2023.03-Linux-x86_64.sh"            # Path to the file to send
+  file: "~/Anaconda3-2024.10-1-Linux-x86_64.sh"            # Path to the file to send
+  # file: "~/Anaconda3-2023.03-Linux-x86_64.sh"            # Path to the file to send
 
 # Receiver Configuration
 receiver:

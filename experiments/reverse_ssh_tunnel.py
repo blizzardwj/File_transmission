@@ -511,9 +511,13 @@ DEBUG_CONFIG = {
     # "jump_user": "zfwj",     # 跳转服务器的用户名
     # "jump_port": 22,                  # 跳转服务器的 SSH 端口
     
-    "jump_server": "192.168.31.123",      # 跳转服务器的域名或 IP
-    "jump_user": "root",     # 跳转服务器的用户名
-    "jump_port": 22,                  # 跳转服务器的 SSH 端口
+    # "jump_server": "192.168.31.123",      # 跳转服务器的域名或 IP
+    # "jump_user": "root",     # 跳转服务器的用户名
+    # "jump_port": 22,                  # 跳转服务器的 SSH 端口
+    
+    "jump_server": "45.145.74.109",   # 跳转服务器的域名或 IP (备用)
+    "jump_user": "root",               # 跳转服务器的用户名 (备用)
+    "jump_port": 5222,                   # 跳转服务器的 SSH 端口 (备用)
     
     # 认证方式
     "use_password": True,            # 设置为 True 表示使用密码认证
@@ -521,13 +525,13 @@ DEBUG_CONFIG = {
     "password": None,                 # 密码 (如果 use_password=True)
     
     # 端口配置
-    "remote_port": 8022,             # 跳转服务器上暴露的端口
-    "local_port": 9022,              # 要转发到的本地端口
+    "remote_port": 8011,             # 跳转服务器上暴露的端口
+    "local_port": 9011,              # 要转发到的本地端口
     
     # 运行模式选项
     "mode": "file",                  # 可选值: "message" 或 "file"
     "start_local_server": True,            # 设置为 True 表示在本地端口上运行receiver service
-    "simulate_client": True,         # 设置为 True 表示模拟客户端连接到远程端口
+    "simulate_client": False,         # 设置为 True 表示模拟客户端连接到远程端口
     
     # 文件传输选项 (当 mode="file" 时)
     # "send_file": "~/Anaconda3-2023.03-Linux-x86_64.sh",    # 模拟客户端要发送的文件路径
