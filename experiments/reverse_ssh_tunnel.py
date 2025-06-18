@@ -501,52 +501,15 @@ def simulate_client_file_exchange(
             logger.error(f"Error in file exchange simulation: {e}")
             return False
 
-# 这个全局变量包含脚本的调试配置
-# 直接修改这些值来调试脚本，无需使用命令行参数
-# 注意：可通过 use_adaptive_transfer 选项控制是否使用自适应缓冲区大小优化文件传输性能
-# ===== DEBUG CONFIGURATION =====
-DEBUG_CONFIG = {
-    # 服务器配置
-    # "jump_server": "20.30.80.249",      # 跳转服务器的域名或 IP
-    # "jump_user": "zfwj",     # 跳转服务器的用户名
-    # "jump_port": 22,                  # 跳转服务器的 SSH 端口
-    
-    # "jump_server": "192.168.31.123",      # 跳转服务器的域名或 IP
-    # "jump_user": "root",     # 跳转服务器的用户名
-    # "jump_port": 22,                  # 跳转服务器的 SSH 端口
-    
-    "jump_server": "45.145.74.109",   # 跳转服务器的域名或 IP (备用)
-    "jump_user": "root",               # 跳转服务器的用户名 (备用)
-    "jump_port": 5222,                   # 跳转服务器的 SSH 端口 (备用)
-    
-    # 认证方式
-    "use_password": True,            # 设置为 True 表示使用密码认证
-    "identity_file": None,            # SSH 私钥路径 (例如 "~/.ssh/id_rsa")
-    "password": None,                 # 密码 (如果 use_password=True)
-    
-    # 端口配置
-    "remote_port": 8011,             # 跳转服务器上暴露的端口
-    "local_port": 9011,              # 要转发到的本地端口
-    
-    # 运行模式选项
-    "mode": "file",                  # 可选值: "message" 或 "file"
-    "start_local_server": True,            # 设置为 True 表示在本地端口上运行receiver service
-    "simulate_client": False,         # 设置为 True 表示模拟客户端连接到远程端口
-    
-    # 文件传输选项 (当 mode="file" 时)
-    # "send_file": "~/Anaconda3-2023.03-Linux-x86_64.sh",    # 模拟客户端要发送的文件路径
-    "send_file": "~/Anaconda3-2024.10-1-Linux-x86_64.sh",    # 模拟客户端要发送的文件路径
-    "get_file": "",                 # 模拟客户端要获取的文件名，空字符串表示不获取
-    "received_files_dir": "~/received_files",
-    "use_adaptive_transfer": True,  # 设置为 True 使用自适应传输，False 使用标准传输
-    
-    # 进度观察者选项
-    "use_progress_observer": True,  # 设置为 True 启用进度观察者
-    "use_rich_progress": True       # 设置为 True 使用 Rich 进度条（如果可用），False 使用简单进度输出
-}
-# =============================
 
 def main():
+    from core.utils import ConfigLoader
+    loader = ConfigLoader(config_path="./config_reverse_tunnel.yml")
+    DEBUG_CONFIG = loader.load_config()
+    if not DEBUG_CONFIG:
+        logger.error("Failed to load configuration, exiting.")
+        sys.exit(1)
+    
     # 从全局调试配置中提取参数
     jump_server = DEBUG_CONFIG["jump_server"]
     jump_user = DEBUG_CONFIG["jump_user"]

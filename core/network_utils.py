@@ -21,7 +21,7 @@ class BufferManager:
     """Manages the buffer size for optimal transfer speed with adaptive adjustment"""
     
     # Default buffer sizes in bytes
-    DEFAULT_BUFFER_SIZE = 64 * 1024 * 8  # 64KB
+    DEFAULT_BUFFER_SIZE = 64 * 1024 * 16  # 64KB
     MINIMUM_BUFFER_SIZE = 8 * 1024  # 8KB minimum buffer size
     MAXIMUM_BUFFER_SIZE = 1 * 1024 * 1024  # 1MB maximum buffer size
 

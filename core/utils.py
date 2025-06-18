@@ -4,6 +4,7 @@ import logging
 import threading
 from typing import Dict, Any, Optional, TYPE_CHECKING
 import sys
+from pathlib import Path
 
 if TYPE_CHECKING:
     from rich.console import Console
@@ -103,24 +104,6 @@ def reset_shared_console():
 
 logger = build_logger(__name__)
 
-def load_config(config_path: str):
-    """
-    加载 YAML 格式的配置文件。
-    如果未指定 config_path，默认查找上级目录下的 config.yaml。
-    返回解析后的字典。
-    """
-    if config_path is None:
-        # config_path = os.path.abspath(
-        #     os.path.join(os.path.dirname(__file__), '..', 'config.yaml')
-        # )
-        raise ValueError("config_path is required")
-    if not os.path.exists(config_path):
-        raise FileNotFoundError(f"配置文件未找到: {config_path}")
-    logger.info(f"加载配置文件: {config_path}")
-    with open(config_path, 'r', encoding='utf-8') as f:
-        return yaml.safe_load(f)
-
-
 class ConfigLoader:
     """
     Handles loading and validating configuration from YAML files
@@ -137,11 +120,12 @@ class ConfigLoader:
             Dict containing the configuration
         """
         try:
-            if not os.path.exists(self.config_path):
+            config_p = Path(self.config_path)
+            if not config_p.is_file():
                 logger.error(f"Configuration file not found: {self.config_path}")
                 sys.exit(1)
                 
-            with open(self.config_path, 'r') as f:
+            with open(config_p, 'r') as f:
                 self.config = yaml.safe_load(f)
                 
             logger.info(f"Configuration loaded from {self.config_path}")
@@ -152,7 +136,7 @@ class ConfigLoader:
     
     def validate_config(self) -> bool:
         """
-        Validate the configuration
+        Validate the configuration in app mode not in test mode
         
         Returns:
             True if configuration is valid, False otherwise
@@ -187,17 +171,23 @@ class ConfigLoader:
             if not file_path:
                 logger.error("Sender mode enabled but no file specified")
                 return False
-            if not os.path.isfile(file_path):
-                logger.error(f"Specified file does not exist: {file_path}")
+            
+            # 使用 Path 库展开用户主目录 (~) 并检查文件是否存在
+            expanded_path = Path(file_path).expanduser()
+            if not expanded_path.is_file():
+                logger.error(f"Specified file does not exist: {expanded_path}")
                 return False
                 
         # If receiver is enabled, check if output directory is valid
         if receiver_enable:
             output_dir = self.config.get('receiver', {}).get('output_dir', '.')
-            if not os.path.exists(output_dir):
+            
+            # 使用 Path 库展开用户主目录 (~) 并检查/创建目录
+            expanded_dir = Path(output_dir).expanduser()
+            if not expanded_dir.exists():
                 try:
-                    os.makedirs(output_dir)
-                    logger.info(f"Created output directory: {output_dir}")
+                    expanded_dir.mkdir(parents=True, exist_ok=True)
+                    logger.info(f"Created output directory: {expanded_dir}")
                 except Exception as e:
                     logger.error(f"Cannot create output directory: {e}")
                     return False

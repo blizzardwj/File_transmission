@@ -321,42 +321,17 @@ def run_interactive_test(local_port: int, test_type: str):
                 
         logger.info("Interactive file transfer session ended")
 
-# 这个全局变量包含脚本的调试配置
-# 直接修改这些值来调试脚本，无需使用命令行参数
-# ===== DEBUG CONFIGURATION =====
-DEBUG_CONFIG = {
-    # 服务器配置
-    # "jump_server": "20.30.80.249",      # 跳转服务器的域名或 IP
-    # "jump_user": "zfwj",                 # 跳转服务器的用户名
-    # "jump_port": 22,                     # 跳转服务器的 SSH 端口
-    
-    # "jump_server": "192.168.31.123",   # 跳转服务器的域名或 IP (备用)
-    # "jump_user": "root",               # 跳转服务器的用户名 (备用)
-    # "jump_port": 22,                   # 跳转服务器的 SSH 端口 (备用)
-    
-    "jump_server": "45.145.74.109",   # 跳转服务器的域名或 IP (备用)
-    "jump_user": "root",               # 跳转服务器的用户名 (备用)
-    "jump_port": 5222,                   # 跳转服务器的 SSH 端口 (备用)
-
-    # 认证方式
-    "use_password": True,                # 设置为 True 表示使用密码认证
-    "identity_file": None,               # SSH 私钥路径 (例如 "~/.ssh/id_rsa")
-    "password": None,                    # 密码 (如果 use_password=True)
-    
-    # 端口配置
-    "local_port": 9080,                  # 本地转发端口
-    "remote_port": 8080,                 # 跳转服务器上目标服务的端口
-    
-    # 测试选项
-    "test": "interactive",               # 可选值: "netcat", "http", "interactive", "file_transfer", None
-    "file_transfer_source_path": "experiments/test_data/test_file_2.dat",  # 要发送的本地文件路径
-    "wait_time": 5,                      # 建立隧道后等待时间
-}
-# =============================
 
 def main():
     # 使用调试配置
     logger.info("Using DEBUG_CONFIG for forward SSH tunnel.")
+
+    from core.utils import ConfigLoader
+    loader = ConfigLoader("./config_forward_tunnel.yml")
+    DEBUG_CONFIG = loader.load_config()
+    if not DEBUG_CONFIG:
+        logger.error("Failed to load configuration. Exiting.")
+        sys.exit(1)
     
     # 从调试配置提取参数
     jump_server = DEBUG_CONFIG["jump_server"]

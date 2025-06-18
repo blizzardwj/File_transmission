@@ -472,10 +472,8 @@ class FileTransferApp:
         file_sent_path = Path(file_to_send).expanduser()
         
         if not file_sent_path.exists():
-            # Create a test file
-            with open(file_sent_path, 'w') as f:
-                f.write(f"This is a test file from the client for reverse tunnel testing.\n" * 100)
-            logger.info(f"Created test file: {file_sent_path}")
+            logger.error(f"File to send does not exist: {file_sent_path}")
+            return False
         
         # Tell server we want to send a file
         transfer.send_message(sock, "SEND_FILE")
