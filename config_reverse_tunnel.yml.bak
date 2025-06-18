@@ -1,0 +1,31 @@
+# File Transfer Configuration for Reverse SSH Tunnel
+# Configuration migrated from experiments/reverse_ssh_tunnel.py DEBUG_CONFIG
+# Using flattened structure
+
+jump_server: "192.168.31.123"         # 跳转服务器的域名或 IP
+jump_user: "root"                      # 跳转服务器的用户名
+jump_port: 22                          # 跳转服务器的 SSH 端口
+
+identity_file: null                      # SSH 私钥路径 (例如 "~/.ssh/id_rsa")
+use_password: true                       # 设置为 True 表示使用密码认证
+password: null                           # 密码 (如果 use_password=True)
+
+# Port Configuration
+remote_port: 8011                        # 跳转服务器上暴露的端口
+local_port: 9011                         # 要转发到的本地端口
+
+# Operation Mode
+mode: "file"                             # 可选值: "message" 或 "file"
+start_local_server: true                 # 设置为 True 表示在本地端口上运行receiver service
+simulate_client: false                   # 设置为 True 表示模拟客户端连接到远程端口
+
+# File Transfer Options (当 mode="file" 时)
+# send_file: "~/Anaconda3-2023.03-Linux-x86_64.sh"    # 模拟客户端要发送的文件路径
+send_file: "~/Anaconda3-2024.10-1-Linux-x86_64.sh"    # 模拟客户端要发送的文件路径
+get_file: ""                             # 模拟客户端要获取的文件名，空字符串表示不获取
+received_files_dir: "~/received_files"   # 接收文件目录
+use_adaptive_transfer: true              # 设置为 True 使用自适应传输，False 使用标准传输
+
+# Progress Observer Options (进度观察者选项)
+use_progress_observer: true              # 设置为 True 启用进度观察者
+use_rich_progress: true                  # 设置为 True 使用 Rich 进度条（如果可用），False 使用简单进度输出

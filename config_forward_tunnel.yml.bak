@@ -1,0 +1,20 @@
+# File Transfer Configuration for Forward SSH Tunnel
+# Configuration migrated from experiments/forward_ssh_tunnel.py DEBUG_CONFIG
+# Using flattened structure
+
+# jump_server: "192.168.31.123"         # 跳转服务器的域名或 IP (备用)
+# jump_user: "root"                      # 跳转服务器的用户名 (备用)
+# jump_port: 22                          # 跳转服务器的 SSH 端口 (备用)
+
+identity_file: null                      # SSH 私钥路径 (例如 "~/.ssh/id_rsa")
+use_password: true                       # 设置为 True 表示使用密码认证
+password: null                           # 密码 (如果 use_password=True)
+
+# Port Configuration
+local_port: 9080                         # 本地转发端口
+remote_port: 8080                        # 跳转服务器上目标服务的端口
+
+# Test Options
+test: "interactive"                      # 可选值: "netcat", "http", "interactive", "file_transfer", null
+file_transfer_source_path: "experiments/test_data/test_file_2.dat"  # 要发送的本地文件路径
+wait_time: 5                             # 建立隧道后等待时间
