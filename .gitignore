@@ -178,3 +178,7 @@ uv.lock
 .python-version
 
 # End of https://www.toptal.com/developers/gitignore/api/python
+
+# Custom config file rules
+config*.yml
+!config*.bak
