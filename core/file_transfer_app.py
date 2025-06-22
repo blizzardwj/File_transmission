@@ -5,8 +5,8 @@ File Transfer Application with Reverse SSH Tunnel Support
 Refactored from experiments/reverse_ssh_tunnel.py
 Make it more modular and reusable, and can load both configurations from config_sender.yaml and config_receiver.yaml
 
-This application establishes a reverse SSH tunnel between two devices and enables file transfer:
-1. Sender Mode: Connects to jump server and sends files through the reverse tunnel
+This application establishes a reverse SSH tunnel and a forward SSH tunnel to facilitate file transfers between a sender and a receiver through a jump server.
+1. Sender Mode: Connects to jump server and sends files through the forward tunnel
 2. Receiver Mode: Runs a local server and receives files through the reverse tunnel
 
 Usage:
@@ -20,8 +20,9 @@ Configuration is loaded from YAML files that specify:
 - File paths and transfer settings
 - Progress observer options
 
-The application uses the same reverse SSH tunnel mechanism as the original but with
-improved modularity and configuration-driven operation.
+NOTE:
+- If the transmission is interrupted passively by network issues or other factors, it is better to close the terminal and restart the application. Because sometimes the listening port is not released on the jump server, even if the threads on both sender and receiver are stopped.
+- If the transmission is interrupted actively by user (e.g., Ctrl+c), the application will try to stop the listening port on the jump server by cleaning up the threads and closing the SSH connections. So the listening port should be released properly.
 """
 
 import os
