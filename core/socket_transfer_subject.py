@@ -7,6 +7,9 @@ supporting both simple message exchange and file transfer using the same protoco
 It abstracts the communication details to provide consistent behavior across
 different types of tunnels (forward or reverse).
 
+NOTE:
+- For reducing the communication overhead when the latency is high, for instance, from China to the US the latency is about 250ms. Use sendall() and recv_exact() to send and receive the completed chunk.
+
 TODO: 
 1. Asynchronous version
 """
@@ -43,7 +46,7 @@ class SocketTransferSubject(ProgressSubject):
     BYTES_FOR_LEN = 8  # Bytes to represent length in header
     
     # Adaptive buffer adjustment constants
-    BUFFER_ADJUSTMENT_INTERVAL = 10  # Adjust buffer every N chunks
+    BUFFER_ADJUSTMENT_INTERVAL = 100  # Adjust buffer every N chunks
     
     def __init__(self, buffer_size: Optional[int] = None):
         """Initialize the tunnel transfer handler
@@ -97,11 +100,9 @@ class SocketTransferSubject(ProgressSubject):
                 chunk = data_bytes[bytes_sent:bytes_sent + chunk_size]
                 
                 try:
-                    sent = sock.send(chunk)
-                    if sent == 0:
-                        logger.error("Socket connection broken during send")
-                        return False
-                    bytes_sent += sent
+                    # Use sendall() for reliable transmission - ensures all data is sent
+                    sock.sendall(chunk)
+                    bytes_sent += len(chunk)
                 except socket.error as e:
                     logger.error(f"Socket error during send: {e}")
                     return False
@@ -146,35 +147,15 @@ class SocketTransferSubject(ProgressSubject):
             data_type, size_str = header.split(self.HEADER_DELIMITER)
             size = int(size_str)
             
-            # Receive data
-            received = 0
-            chunks = []
-            
-            while received < size:
-                chunk_size = min(self.buffer_size, size - received)
-                chunk = sock.recv(chunk_size)
-                
-                if not chunk:
-                    logger.error("Connection closed while receiving data")
-                    return None, None
-                    
-                chunks.append(chunk)
-                received += len(chunk)
-                
-                # # Show progress for large transfers
-                # if data_type == self.FILE_TYPE and size > self.buffer_size * 10:
-                #     percent = int(received * 100 / size)
-                #     print(f"\rReceiving: {percent}% ({received}/{size} bytes)", end='')
-            
-            # Complete progress indicator
-            if data_type == self.FILE_TYPE and size > self.buffer_size * 10:
-                print()
+            # Receive data using reliable method to ensure all data is received
+            data = self._recv_exact(sock, size)
+            if not data:
+                logger.error("Connection closed while receiving data")
+                return None, None
                 
             # Restore original timeout
             if original_timeout is not None:
                 sock.settimeout(original_timeout)
-                
-            data = b''.join(chunks)
             
             # Convert message data to string
             if data_type == self.MSG_TYPE:
@@ -624,10 +605,14 @@ class SocketTransferSubject(ProgressSubject):
         if not output_p.exists():
             output_p.mkdir(parents=True, exist_ok=True)
             
+        # Generate unique task ID for this transfer (early to ensure it's available for error handling)
+        task_id = generate_task_id()
+        
         # First receive file metadata
         metadata = self.receive_message(sock)
         if not metadata:
             logger.error("Failed to receive file metadata")
+            self.notify_observers(TaskErrorEvent(task_id, "Failed to receive file metadata"))
             return None
             
         try:
@@ -635,9 +620,6 @@ class SocketTransferSubject(ProgressSubject):
             file_size = int(file_size_str)
             
             logger.info(f"Preparing to receive file: {file_name} ({file_size} bytes)")
-            
-            # Generate unique task ID for this transfer
-            task_id = generate_task_id()
             
             # Notify observers that task started
             self.notify_observers(TaskStartedEvent(
@@ -711,13 +693,7 @@ class SocketTransferSubject(ProgressSubject):
             
         except Exception as e:
             logger.error(f"Error receiving file adaptively: {e}")
-            # task_id 可能未定义，需要检查
-            try:
-                self.notify_observers(TaskErrorEvent(task_id, f"Receive error: {str(e)}"))
-            except NameError:
-                # task_id 未定义，创建一个临时的用于错误报告
-                temp_task_id = generate_task_id()
-                self.notify_observers(TaskErrorEvent(temp_task_id, f"Receive error (no task): {str(e)}"))
+            self.notify_observers(TaskErrorEvent(task_id, f"Receive error: {str(e)}"))
             return None
 
 # Example message handler function

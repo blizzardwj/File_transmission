@@ -6,93 +6,120 @@ This document provides an overview of the File Transmission application and its 
 
 For the sender:
 ```bash
-python transfer.py --config config_sender.yml
+python core/file_transfer_app.py --config config_sender.yml
 ```
 
 For the receiver:
 ```bash
-python transfer.py --config config_receiver.yml
+python core/transfer.py --config config_receiver.yml
 ```
 
 ## Class Diagram
 
-The following diagram illustrates the main classes in `transfer.py` and their relationships with components from the `core` module:
+The following diagram illustrates the main classes in `file_transfer_app.py` and their relationships with components from the `core` module:
 
 ```mermaid
 classDiagram
-    class TransferApplication {
-        +config: Dict
-        +ssh_config: SSHConfig
-        +transfer_port: int
-        +_create_ssh_config() SSHConfig
-        +run()
+    %% Entry Point
+    class Main {
+        <<entry>>
+        +main(args: List~str~)
     }
+
+    %% Abstract Base Application
+    class FileTransferApp {
+        <<abstract>>
+        - config: Dict~str, Any~
+        - ssh_config: SSHConfig
+        - observer: IProgressObserver
+        + _load_config(path: str): Dict
+        + _create_ssh_config(): SSHConfig
+        + _create_observer_if_enabled(): IProgressObserver
+        + run_as_sender(): void
+        + run_as_receiver(): void
+    }
+    class FileTransferSenderApp
+    class FileTransferReceiverApp
+    FileTransferSenderApp --|> FileTransferApp : <<instantiates>>
+    FileTransferReceiverApp --|> FileTransferApp : <<instantiates>>
+
+    %% SSH Configuration and Tunnels
     class SSHConfig {
-        +hostname: str
-        +username: str
-        +port: int
-        +identity_file: str
-        +use_password: bool
+        - host: str
+        - port: int
+        - username: str
+        + load(path: str): SSHConfig
     }
-    class FileSender {
-        # Inherits from FileTransferBase
-        # Uses SSHTunnelForward
-        # Uses SocketDataTransfer
+    class SSHTunnel {
+        <<interface>>
+        + open(): void
+        + close(): void
     }
-    class FileReceiver {
-        # Inherits from FileTransferBase
-        # Uses SSHTunnelReverse
-        # Uses SocketDataTransfer
-    }
-    class ConfigLoader {
-        +config_file: str
-        +load_config() Dict
-        +validate_config() bool
-    }
-    class main_function {
-        <<script>>
-        # Entry point for transfer.py
-    }
+    class SSHTunnelForward
+    class SSHTunnelReverse
+    SSHTunnelForward --|> SSHTunnel
+    SSHTunnelReverse --|> SSHTunnel
+    FileTransferApp *-- SSHConfig : "1"
+    FileTransferApp *-- SSHTunnelForward : "0..1"
+    FileTransferApp *-- SSHTunnelReverse : "0..1"
 
-    class FileTransferBase {
-        +mode: TransferMode
-        +ssh_config: SSHConfig
-        +buffer_manager: BufferManager
-        +network_monitor: NetworkMonitor
-        +tunnel: Object
+    %% Socket Transfer and Buffering
+    class SocketTransferSubject {
+        - buffer_manager: BufferManager
+        - socket: socket
+        + send(data: bytes): void
+        + receive(): bytes
     }
+    FileTransferApp o-- SocketTransferSubject : "1 manages"
+    SocketTransferSubject o-- BufferManager : "1 uses"
+    SocketTransferSubject *-- ProgressSubject : "publishes"
+
     class BufferManager {
-        # Manages buffer sizes
-    }
-    class NetworkMonitor {
-        # Monitors network conditions
-    }
-    class SSHTunnelForward {
-        # Establishes forward SSH tunnel
-    }
-    class SSHTunnelReverse {
-        # Establishes reverse SSH tunnel
-    }
-    class SocketDataTransfer {
-        # Handles raw socket data transfer
+        - buffer_size: int
+        - max_buffer_size: int
+        + adjust(latency: float): void
     }
 
-    TransferApplication "1" *-- "1" SSHConfig : uses
-    TransferApplication ..> FileSender : uses
-    TransferApplication ..> FileReceiver : uses
+    %% Observer Pattern
+    class ProgressSubject {
+        - observers: List~IProgressObserver~
+        + attach(o: IProgressObserver): void
+        + detach(o: IProgressObserver): void
+        + notify(e: ProgressEvent): void
+    }
+    class IProgressObserver {
+        <<interface>>
+        + on_event(e: ProgressEvent): void
+    }
+    class RichProgressObserver {
+        - console: Console
+        + on_event(e: ProgressEvent): void
+    }
+    ProgressSubject o-- IProgressObserver : "*"
+    RichProgressObserver --|> IProgressObserver
+    IProgressObserver ..> ProgressEvent : "handles"
 
-    main_function ..> ConfigLoader : uses
-    main_function ..> TransferApplication : creates & runs
+    class ProgressEvent {
+        - event_type: str
+        - bytes_transferred: int
+        - timestamp: datetime
+    }
+    class TaskStartedEvent
+    class ProgressAdvancedEvent
+    class TaskCompletedEvent
+    TaskStartedEvent --|> ProgressEvent
+    ProgressAdvancedEvent --|> ProgressEvent
+    TaskCompletedEvent --|> ProgressEvent
 
-    FileSender --|> FileTransferBase
-    FileReceiver --|> FileTransferBase
+    %% Utilities
+    class Utils {
+        <<static>>
+        + build_logger(name: str): Logger
+        + get_shared_console(): Console
+    }
+    FileTransferApp ..> Utils : uses
 
-    FileTransferBase "1" *-- "1" BufferManager : uses
-    FileTransferBase "1" *-- "1" NetworkMonitor : uses
-
-    FileSender ..> SSHTunnelForward : uses
-    FileReceiver ..> SSHTunnelReverse : uses
-
-    FileSender ..> SocketDataTransfer : uses
-    FileReceiver ..> SocketDataTransfer : uses
+    %% Entry Flow
+    Main --> FileTransferSenderApp : "start"
+    Main --> FileTransferReceiverApp : "start"
 ```
