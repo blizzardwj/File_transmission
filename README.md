@@ -2,6 +2,20 @@
 
 This document provides an overview of the File Transmission application and its components.
 
+## Real performance
+- The sender uses a broadband connection in China with an upload speed of 40 Mbps. 
+- The receiver is located on the west coast of North America, with a network latency exceeding 230 ms.
+- The following image demonstrates the actual transmission performance. The application logs the transfer rate after every 100 chunks sent. The average transfer rate is calculated by averaging these sampled rates. By default, the transfer rate is recorded once every 100 chunks, which provides a coarse measurement. For more accurate insights, refer to the real-time logging output, which better reflects the actual transfer speed.
+
+**Example sender log output:**
+![Sender Log Output](resources/sender_logger.png)
+
+**Example receiver log output:**
+![Receiver Log Output](resources/receiver_logger.png)
+
+**Example sender log output upon completion:**
+![Sender Completion Log Output](resources/sender_completion_logger.png)
+
 ## Start the application
 
 For the sender:
@@ -11,7 +25,7 @@ python core/file_transfer_app.py --config config_sender.yml
 
 For the receiver:
 ```bash
-python core/transfer.py --config config_receiver.yml
+python core/file_transfer_app.py --config config_receiver.yml
 ```
 
 ## Class Diagram
