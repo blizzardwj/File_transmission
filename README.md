@@ -1,6 +1,6 @@
 # File Transmission Application
 
-This document provides an overview of the File Transmission application and its components.
+This document provides an overview of the File Transmission application and its components. It features a sender and receiver that communicate over a jump server using SSH tunnels. The application is designed to transfer a file efficiently through sockets while providing real-time progress updates.
 
 ## Real performance
 - The sender uses a broadband connection in China with an upload speed of 40 Mbps. 
